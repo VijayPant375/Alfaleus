@@ -76,6 +76,9 @@ class Candidate(Base):
     # Relationships
     job = relationship("Job", back_populates="candidates")
     scores = relationship("Score", back_populates="candidate", lazy="noload")
+    interview_session = relationship(
+        "InterviewSession", back_populates="candidate", uselist=False
+    )
 
     def __repr__(self) -> str:
         return f"<Candidate id={self.id} name={self.name!r} job_id={self.job_id}>"
