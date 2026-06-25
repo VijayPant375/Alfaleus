@@ -310,3 +310,34 @@ async def get_candidate(
     """GET /candidates/{candidate_id}"""
     candidate = await _get_candidate_or_404(candidate_id, db)
     return CandidateResponse.model_validate(candidate)
+
+
+# ---------------------------------------------------------------------------
+# PATCH /candidates/{candidate_id}/override
+# ---------------------------------------------------------------------------
+
+class ShortlistOverrideRequest(BaseModel):
+    shortlisted: bool
+
+
+@router.patch(
+    "/{candidate_id}/override",
+    response_model=CandidateResponse,
+    summary="Manual Shortlist Override",
+    description="Manually override the shortlist status of a candidate. This prevents future score-all runs from changing it.",
+)
+async def override_shortlist(
+    candidate_id: uuid.UUID,
+    payload: ShortlistOverrideRequest,
+    db: AsyncSession = Depends(get_db),
+) -> CandidateResponse:
+    """PATCH /candidates/{candidate_id}/override"""
+    candidate = await _get_candidate_or_404(candidate_id, db)
+    
+    candidate.shortlist_override = True
+    candidate.shortlisted = payload.shortlisted
+    
+    await db.commit()
+    await db.refresh(candidate)
+    
+    return CandidateResponse.model_validate(candidate)
