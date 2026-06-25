@@ -252,3 +252,63 @@ async def run_pipeline(
         shortlisted_count=score_resp.total_shortlisted,
         warnings=scrape_resp.warnings
     )
+
+
+# ---------------------------------------------------------------------------
+# POST /jobs/{job_id}/send-invites
+# ---------------------------------------------------------------------------
+
+from pydantic import BaseModel
+from app.services.email_service import send_interview_invite
+
+class SendInvitesResponse(BaseModel):
+    invited_count: int
+    failed_count: int
+
+@router.post(
+    "/{job_id}/send-invites",
+    response_model=SendInvitesResponse,
+    summary="Send interview invites to shortlisted candidates",
+)
+async def send_invites(
+    job_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+) -> SendInvitesResponse:
+    """POST /jobs/{job_id}/send-invites"""
+    logger.info("Received POST /jobs/%s/send-invites", job_id)
+    
+    # Verify job
+    result = await db.execute(select(Job).where(Job.id == job_id))
+    job = result.scalar_one_or_none()
+    if not job:
+        raise HTTPException(status_code=404, detail=f"Job {job_id} not found.")
+        
+    # Fetch shortlisted, not_invited candidates
+    candidates_res = await db.execute(
+        select(Candidate).where(
+            Candidate.job_id == job_id,
+            Candidate.shortlisted == True,
+            Candidate.interview_status == "not_invited"
+        )
+    )
+    candidates = candidates_res.scalars().all()
+    
+    invited_count = 0
+    failed_count = 0
+    
+    for candidate in candidates:
+        candidate.interview_token = uuid.uuid4().hex
+        
+        success = await send_interview_invite(candidate, job)
+        if success:
+            candidate.interview_status = "invited"
+            invited_count += 1
+        else:
+            failed_count += 1
+            
+    await db.commit()
+    
+    return SendInvitesResponse(
+        invited_count=invited_count,
+        failed_count=failed_count
+    )

@@ -64,6 +64,7 @@ class CandidateResponse(BaseModel):
     shortlisted: bool
     shortlist_override: bool
     interview_status: str
+    interview_token: Optional[str] = None
     created_at: datetime
 
     model_config = {"from_attributes": True}
