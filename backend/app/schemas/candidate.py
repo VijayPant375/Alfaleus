@@ -38,6 +38,10 @@ class CandidateCreate(BaseModel):
     confidence_level: str = Field(
         "low", description="high | medium | low"
     )
+    shortlist_override: bool = Field(
+        False,
+        description="If True, manual shortlist decision overrides score-based logic",
+    )
 
 
 # ---------------------------------------------------------------------------
