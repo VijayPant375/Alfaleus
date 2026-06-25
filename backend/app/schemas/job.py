@@ -24,8 +24,8 @@ class RequiredSkill(BaseModel):
 
 
 class ExperienceRange(BaseModel):
-    min: int = Field(..., ge=0)
-    max: int = Field(..., ge=0)
+    min: Optional[int] = Field(default=0, ge=0)
+    max: Optional[int] = Field(default=None, ge=0)
 
 
 # ---------------------------------------------------------------------------
