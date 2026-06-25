@@ -108,8 +108,7 @@ async def scrape_linkedin(title: str, location: Optional[str]) -> List[Dict[str,
     if location:
         query += f"&location={urllib.parse.quote(location)}"
     
-    url = f"https://www.linkedin.com/search/results/people/?{query}"
-    
+    all_results = []
     try:
         async with async_playwright() as p:
             browser = await p.chromium.launch(headless=True)
@@ -118,53 +117,67 @@ async def scrape_linkedin(title: str, location: Optional[str]) -> List[Dict[str,
             )
             page = await context.new_page()
             
-            # Use a short timeout since we're just checking if we can get through
-            await page.goto(url, wait_until="domcontentloaded", timeout=15000)
-            
-            # Wait a moment for dynamic content
-            await asyncio.sleep(3)
-            
-            # Check if we hit an auth wall or captcha (which is 99% likely without cookies)
-            if "login" in page.url.lower() or "challenge" in page.url.lower() or await page.locator("form.login__form").count() > 0:
-                logger.warning("LinkedIn blocked unauthenticated access. Falling back to mock data.")
-                await browser.close()
-                return _get_mock_candidates(title, location, "linkedin")
+            for page_idx in range(5):
+                start = page_idx * 10
+                url = f"https://www.linkedin.com/search/results/people/?{query}&start={start}"
+                logger.info("Scraping LinkedIn page %d (start=%d)", page_idx + 1, start)
                 
-            # If by some miracle we got through, try to parse some basic info
-            html = await page.content()
-            soup = BeautifulSoup(html, "html.parser")
-            
-            results = []
-            cards = soup.select(".reusable-search__result-container")
-            for card in cards:
-                name_elem = card.select_one(".entity-result__title-text a")
-                title_elem = card.select_one(".entity-result__primary-subtitle")
-                loc_elem = card.select_one(".entity-result__secondary-subtitle")
+                # Use a short timeout since we're just checking if we can get through
+                await page.goto(url, wait_until="domcontentloaded", timeout=15000)
                 
-                if name_elem and title_elem:
-                    name_clean = name_elem.text.strip().split("\n")[0].strip()
-                    if "LinkedIn Member" in name_clean:
-                        continue
-                        
-                    results.append({
-                        "name": name_clean,
-                        "current_title": title_elem.text.strip(),
-                        "current_company": None, # Hard to reliably extract from just search results without clicking
-                        "listed_skills": [],
-                        "experience_summary": title_elem.text.strip() + (" in " + loc_elem.text.strip() if loc_elem else ""),
-                        "work_history": [],
-                        "source": "linkedin",
-                        "profile_url": name_elem.get("href", "").split("?")[0],
-                        "confidence_level": "medium"
-                    })
+                # Wait a moment for dynamic content
+                await asyncio.sleep(3)
+                
+                # Check if we hit an auth wall or captcha (which is 99% likely without cookies)
+                if "login" in page.url.lower() or "challenge" in page.url.lower() or await page.locator("form.login__form").count() > 0:
+                    logger.warning("LinkedIn blocked unauthenticated access on page %d. Stopping early.", page_idx + 1)
+                    if not all_results:
+                        logger.warning("Falling back to mock data since no results were fetched.")
+                        await browser.close()
+                        return _get_mock_candidates(title, location, "linkedin")
+                    break
+                    
+                # If by some miracle we got through, try to parse some basic info
+                html = await page.content()
+                soup = BeautifulSoup(html, "html.parser")
+                
+                page_results = []
+                cards = soup.select(".reusable-search__result-container")
+                for card in cards:
+                    name_elem = card.select_one(".entity-result__title-text a")
+                    title_elem = card.select_one(".entity-result__primary-subtitle")
+                    loc_elem = card.select_one(".entity-result__secondary-subtitle")
+                    
+                    if name_elem and title_elem:
+                        name_clean = name_elem.text.strip().split("\n")[0].strip()
+                        if "LinkedIn Member" in name_clean:
+                            continue
+                            
+                        page_results.append({
+                            "name": name_clean,
+                            "current_title": title_elem.text.strip(),
+                            "current_company": None, # Hard to reliably extract from just search results without clicking
+                            "listed_skills": [],
+                            "experience_summary": title_elem.text.strip() + (" in " + loc_elem.text.strip() if loc_elem else ""),
+                            "work_history": [],
+                            "source": "linkedin",
+                            "profile_url": name_elem.get("href", "").split("?")[0],
+                            "confidence_level": "medium"
+                        })
+                
+                all_results.extend(page_results)
+                
+                # If we didn't find any cards on this page, assume we reached the end
+                if not page_results:
+                    break
             
             await browser.close()
             
-            if not results:
+            if not all_results:
                 logger.warning("No LinkedIn results found or parsing failed. Falling back to mock data.")
                 return _get_mock_candidates(title, location, "linkedin")
                 
-            return results
+            return all_results
 
     except Exception as e:
         logger.warning("LinkedIn scrape failed (%s: %s). Falling back to mock data.", type(e).__name__, str(e))
@@ -182,7 +195,7 @@ async def scrape_indeed(title: str, location: Optional[str]) -> List[Dict[str, A
     if location:
         query_params["l"] = location
         
-    url = f"https://www.indeed.com/resumes?{urllib.parse.urlencode(query_params)}"
+    base_url = f"https://www.indeed.com/resumes?{urllib.parse.urlencode(query_params)}"
     
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
@@ -190,47 +203,64 @@ async def scrape_indeed(title: str, location: Optional[str]) -> List[Dict[str, A
         "Accept-Language": "en-US,en;q=0.5",
     }
     
+    all_results = []
     try:
         async with httpx.AsyncClient(follow_redirects=True, timeout=15.0) as client:
-            resp = await client.get(url, headers=headers)
-            
-            if resp.status_code != 200:
-                logger.warning("Indeed returned status %s. Falling back to mock data.", resp.status_code)
-                return _get_mock_candidates(title, location, "indeed")
+            for page_idx in range(5):
+                start = page_idx * 10
+                url = f"{base_url}&start={start}"
+                logger.info("Scraping Indeed page %d (start=%d)", page_idx + 1, start)
                 
-            soup = BeautifulSoup(resp.text, "html.parser")
-            
-            # Check for Cloudflare / Captcha
-            if "Cloudflare" in resp.text or "captcha" in resp.text.lower() or "verify you are human" in resp.text.lower():
-                logger.warning("Indeed presented a CAPTCHA/Block. Falling back to mock data.")
-                return _get_mock_candidates(title, location, "indeed")
+                resp = await client.get(url, headers=headers)
                 
-            results = []
-            # Note: Indeed's DOM changes frequently. This is a best-effort structural parse.
-            cards = soup.select(".rezemp-ResumeSearchCard")
-            for card in cards:
-                title_elem = card.select_one(".rezemp-ResumeSearchCard-title")
-                name_elem = card.select_one(".rezemp-ResumeSearchCard-name")
-                summary_elem = card.select_one(".rezemp-ResumeSearchCard-summary")
-                
-                if title_elem:
-                    results.append({
-                        "name": name_elem.text.strip() if name_elem else f"Candidate {len(results)+1}",
-                        "current_title": title_elem.text.strip(),
-                        "current_company": None,
-                        "listed_skills": [],
-                        "experience_summary": summary_elem.text.strip() if summary_elem else "",
-                        "work_history": [],
-                        "source": "indeed",
-                        "profile_url": "https://indeed.com/resumes", # Actual links require parsing encrypted IDs
-                        "confidence_level": "low" if not name_elem else "medium"
-                    })
+                if resp.status_code != 200:
+                    logger.warning("Indeed returned status %s on page %d. Stopping early.", resp.status_code, page_idx + 1)
+                    if not all_results:
+                        logger.warning("Falling back to mock data since no results were fetched.")
+                        return _get_mock_candidates(title, location, "indeed")
+                    break
                     
-            if not results:
+                soup = BeautifulSoup(resp.text, "html.parser")
+                
+                # Check for Cloudflare / Captcha
+                if "Cloudflare" in resp.text or "captcha" in resp.text.lower() or "verify you are human" in resp.text.lower():
+                    logger.warning("Indeed presented a CAPTCHA/Block on page %d. Stopping early.", page_idx + 1)
+                    if not all_results:
+                        logger.warning("Falling back to mock data since no results were fetched.")
+                        return _get_mock_candidates(title, location, "indeed")
+                    break
+                    
+                page_results = []
+                # Note: Indeed's DOM changes frequently. This is a best-effort structural parse.
+                cards = soup.select(".rezemp-ResumeSearchCard")
+                for card in cards:
+                    title_elem = card.select_one(".rezemp-ResumeSearchCard-title")
+                    name_elem = card.select_one(".rezemp-ResumeSearchCard-name")
+                    summary_elem = card.select_one(".rezemp-ResumeSearchCard-summary")
+                    
+                    if title_elem:
+                        page_results.append({
+                            "name": name_elem.text.strip() if name_elem else f"Candidate {len(all_results) + len(page_results) + 1}",
+                            "current_title": title_elem.text.strip(),
+                            "current_company": None,
+                            "listed_skills": [],
+                            "experience_summary": summary_elem.text.strip() if summary_elem else "",
+                            "work_history": [],
+                            "source": "indeed",
+                            "profile_url": "https://indeed.com/resumes", # Actual links require parsing encrypted IDs
+                            "confidence_level": "low" if not name_elem else "medium"
+                        })
+                        
+                all_results.extend(page_results)
+                
+                if not page_results:
+                    break
+                    
+            if not all_results:
                 logger.warning("No Indeed results found (DOM likely changed). Falling back to mock data.")
                 return _get_mock_candidates(title, location, "indeed")
                 
-            return results
+            return all_results
             
     except Exception as e:
         logger.warning("Indeed scrape failed (%s: %s). Falling back to mock data.", type(e).__name__, str(e))
