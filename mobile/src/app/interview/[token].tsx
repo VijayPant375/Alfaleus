@@ -59,8 +59,8 @@ export default function InterviewLandingScreen() {
         return;
       }
       
-      // Navigate to questions screen
-      router.push(`/interview/${token}/questions`);
+      // Navigate to questions screen, passing candidate name for the completion screen
+      router.push(`/interview/${token}/questions?candidateName=${encodeURIComponent(statusData?.candidate_name || '')}`);
     } catch (err) {
       Alert.alert('Error', 'Network error. Please try again.');
     } finally {

@@ -1,8 +1,11 @@
 import logging
+import os
 from datetime import datetime, timezone
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+import httpx
+from dotenv import load_dotenv
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -13,7 +16,13 @@ from app.models.interview_session import InterviewSession
 from app.models.job import Job
 from app.services.question_generator import generate_questions
 
+load_dotenv()
+
 logger = logging.getLogger(__name__)
+
+_SUPABASE_URL = os.getenv("SUPABASE_URL", "")
+_SUPABASE_KEY = os.getenv("SUPABASE_KEY", "")
+_STORAGE_BUCKET = "interviews"
 
 router = APIRouter(prefix="/interview", tags=["interview"])
 
@@ -171,3 +180,178 @@ async def get_interview_questions(
     )
     return [QuestionResponse(**q) for q in questions]
 
+
+# ---------------------------------------------------------------------------
+# Phase 3 — Chunked Video Upload
+# ---------------------------------------------------------------------------
+
+
+class ChunkUploadResponse(BaseModel):
+    chunk_index: int
+    received: bool
+
+
+class FinalizeAnswerRequest(BaseModel):
+    question_id: int
+    total_chunks: int
+
+
+class FinalizeAnswerResponse(BaseModel):
+    question_id: int
+    video_url: str
+    answers_submitted: int
+
+
+async def _upload_chunk_to_supabase(
+    path: str,
+    data: bytes,
+    content_type: str = "video/webm",
+) -> None:
+    """Upload a single raw chunk to Supabase Storage via the REST API."""
+    if not _SUPABASE_URL or not _SUPABASE_KEY:
+        raise HTTPException(
+            status_code=500,
+            detail="Supabase credentials are not configured on the server.",
+        )
+
+    url = f"{_SUPABASE_URL}/storage/v1/object/{_STORAGE_BUCKET}/{path}"
+    headers = {
+        "Authorization": f"Bearer {_SUPABASE_KEY}",
+        "Content-Type": content_type,
+        "x-upsert": "true",  # overwrite if re-uploaded
+    }
+
+    async with httpx.AsyncClient(timeout=60.0) as client:
+        response = await client.post(url, content=data, headers=headers)
+
+    if response.status_code not in (200, 201):
+        logger.error(
+            "Supabase Storage upload failed (%s): %s",
+            response.status_code,
+            response.text[:300],
+        )
+        raise HTTPException(
+            status_code=502,
+            detail=f"Supabase Storage upload failed: {response.status_code}",
+        )
+
+
+@router.post(
+    "/{token}/upload-chunk",
+    response_model=ChunkUploadResponse,
+    summary="Upload a single video chunk to Supabase Storage",
+)
+async def upload_chunk(
+    token: str,
+    question_id: int = Form(...),
+    chunk_index: int = Form(...),
+    total_chunks: int = Form(...),
+    video_chunk: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+) -> ChunkUploadResponse:
+    """
+    POST /interview/{token}/upload-chunk
+
+    Accepts a single video chunk (multipart/form-data) and uploads it directly
+    to Supabase Storage at:
+      interviews/{candidate_id}/{question_id}/chunk_{chunk_index}.webm
+
+    Uses httpx to call the Supabase Storage REST API — no additional SDK needed.
+    """
+    # Look up candidate by token
+    query = select(Candidate).where(Candidate.interview_token == token)
+    result = await db.execute(query)
+    candidate = result.scalar_one_or_none()
+
+    if not candidate:
+        raise HTTPException(status_code=404, detail="Invalid or expired interview token")
+
+    # Read chunk bytes
+    chunk_data = await video_chunk.read()
+
+    # Upload to Supabase Storage
+    storage_path = f"{candidate.id}/{question_id}/chunk_{chunk_index}.webm"
+    await _upload_chunk_to_supabase(storage_path, chunk_data)
+
+    logger.info(
+        "Uploaded chunk %d/%d for question %d (candidate %s)",
+        chunk_index + 1,
+        total_chunks,
+        question_id,
+        candidate.id,
+    )
+
+    return ChunkUploadResponse(chunk_index=chunk_index, received=True)
+
+
+@router.post(
+    "/{token}/finalize-answer",
+    response_model=FinalizeAnswerResponse,
+    summary="Finalize a recorded answer and store the video URL",
+)
+async def finalize_answer(
+    token: str,
+    body: FinalizeAnswerRequest,
+    db: AsyncSession = Depends(get_db),
+) -> FinalizeAnswerResponse:
+    """
+    POST /interview/{token}/finalize-answer
+
+    Called after all chunks for a question have been uploaded. Constructs the
+    public URL for chunk_0 (Day 4 will handle merging) and appends the answer
+    record to the InterviewSession.answers JSONB column.
+    """
+    # Look up candidate by token
+    query = select(Candidate).where(Candidate.interview_token == token)
+    result = await db.execute(query)
+    candidate = result.scalar_one_or_none()
+
+    if not candidate:
+        raise HTTPException(status_code=404, detail="Invalid or expired interview token")
+
+    # Fetch the InterviewSession for this candidate
+    session_query = select(InterviewSession).where(
+        InterviewSession.candidate_id == candidate.id,
+    )
+    session_result = await db.execute(session_query)
+    session = session_result.scalar_one_or_none()
+
+    if not session:
+        raise HTTPException(
+            status_code=404,
+            detail="No interview session found for this candidate. Call /questions first.",
+        )
+
+    # Construct placeholder video URL (Day 4 will handle chunk merging)
+    video_url = (
+        f"{_SUPABASE_URL}/storage/v1/object/public/{_STORAGE_BUCKET}/"
+        f"{candidate.id}/{body.question_id}/chunk_0.webm"
+    )
+
+    # Append answer to session (overwrite if same question_id to allow retries)
+    current_answers: list = list(session.answers or [])
+    current_answers = [a for a in current_answers if a.get("question_id") != body.question_id]
+    current_answers.append(
+        {
+            "question_id": body.question_id,
+            "transcript": None,
+            "video_url": video_url,
+        }
+    )
+
+    # Reassign to trigger SQLAlchemy dirty-tracking on JSONB column
+    session.answers = current_answers
+    await db.commit()
+
+    logger.info(
+        "Finalized answer for question %d (candidate %s) — %d answers total",
+        body.question_id,
+        candidate.id,
+        len(current_answers),
+    )
+
+    return FinalizeAnswerResponse(
+        question_id=body.question_id,
+        video_url=video_url,
+        answers_submitted=len(current_answers),
+    )
