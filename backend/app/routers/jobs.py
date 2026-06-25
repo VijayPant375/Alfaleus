@@ -17,6 +17,9 @@ from app.database import get_db
 from app.models.job import Job
 from app.schemas.job import JobCreate, JobResponse
 from app.services.jd_analyzer import analyze_job_description
+from app.services.scraper import run_scrapers
+from app.schemas.scraper import ScrapeRequest, ScrapeResponse
+from app.models.candidate import Candidate
 
 logger = logging.getLogger(__name__)
 
@@ -121,3 +124,92 @@ async def list_jobs(
     )
     jobs = result.scalars().all()
     return [JobResponse.model_validate(j) for j in jobs]
+
+
+@router.post(
+    "/{job_id}/scrape",
+    response_model=ScrapeResponse,
+    summary="Scrape candidates for a job",
+)
+async def scrape_candidates(
+    job_id: uuid.UUID,
+    payload: ScrapeRequest,
+    db: AsyncSession = Depends(get_db),
+) -> ScrapeResponse:
+    """POST /jobs/{job_id}/scrape — Scrapes LinkedIn and Indeed for candidates."""
+    logger.info("Received POST /jobs/%s/scrape", job_id)
+    
+    # Verify job exists
+    result = await db.execute(select(Job).where(Job.id == job_id))
+    job = result.scalar_one_or_none()
+    if not job:
+        raise HTTPException(status_code=404, detail=f"Job {job_id} not found.")
+        
+    title_to_search = payload.title or job.title
+    location_to_search = payload.location
+    
+    # Run scrapers
+    scraped_candidates = await run_scrapers(title_to_search, location_to_search)
+    
+    # Deduplicate by (name, company) internally in scraped data
+    seen_combinations = set()
+    unique_scraped = []
+    
+    linkedin_count = 0
+    indeed_count = 0
+    
+    for c_data in scraped_candidates:
+        name = c_data.get("name", "").strip().lower()
+        company = (c_data.get("current_company") or "").strip().lower()
+        key = (name, company)
+        
+        if key not in seen_combinations:
+            seen_combinations.add(key)
+            unique_scraped.append(c_data)
+            if c_data.get("source") == "linkedin":
+                linkedin_count += 1
+            else:
+                indeed_count += 1
+                
+    # Insert unique candidates to database
+    total_added = 0
+    for c_data in unique_scraped:
+        # Check if candidate already exists in the DB for this job
+        name = c_data.get("name", "")
+        company = c_data.get("current_company")
+        
+        existing = None
+        if name:
+            query = select(Candidate).where(
+                Candidate.job_id == job_id,
+                Candidate.name == name
+            )
+            existing_candidates = await db.execute(query)
+            for ec in existing_candidates.scalars().all():
+                if ec.current_company == company:
+                    existing = ec
+                    break
+        
+        if not existing:
+            new_candidate = Candidate(
+                id=uuid.uuid4(),
+                job_id=job_id,
+                **c_data,
+                shortlisted=False,
+                shortlist_override=False,
+                interview_status="not_invited",
+                created_at=datetime.now(timezone.utc),
+            )
+            db.add(new_candidate)
+            total_added += 1
+            
+    await db.flush()
+    
+    return ScrapeResponse(
+        job_id=job_id,
+        linkedin_count=linkedin_count,
+        indeed_count=indeed_count,
+        total_added=total_added,
+        warnings=["Playwright fallback active" if linkedin_count > 0 and unique_scraped[0].get("profile_url", "").endswith("-mock") else ""]
+    )
+
