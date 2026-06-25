@@ -62,13 +62,21 @@ class JobResponse(BaseModel):
     id: UUID
     title: str
     description: str
-    required_skills: Optional[List[Dict[str, Any]]] = None
-    preferred_skills: Optional[List[str]] = None
-    experience_range: Optional[Dict[str, Any]] = None
-    role_level: Optional[str] = None
-    implicit_signals: Optional[List[str]] = None
+    required_skills: List[Dict[str, Any]]
+    preferred_skills: List[str]
+    experience_range: Optional[ExperienceRange]
+    role_level: str
+    implicit_signals: List[str]
     shortlist_threshold: float
     status: str
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class PipelineResponse(BaseModel):
+    job_id: UUID
+    candidates_scraped: int
+    candidates_scored: int
+    shortlisted_count: int
+    warnings: List[str]

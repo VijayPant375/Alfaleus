@@ -15,11 +15,12 @@ from sqlalchemy import select
 
 from app.database import get_db
 from app.models.job import Job
-from app.schemas.job import JobCreate, JobResponse
+from app.schemas.job import JobCreate, JobResponse, PipelineResponse
 from app.services.jd_analyzer import analyze_job_description
 from app.services.scraper import run_scrapers
 from app.schemas.scraper import ScrapeRequest, ScrapeResponse
 from app.models.candidate import Candidate
+from app.routers.candidates import score_all_candidates, ScoreAllRequest
 
 logger = logging.getLogger(__name__)
 
@@ -213,3 +214,41 @@ async def scrape_candidates(
         warnings=["Playwright fallback active" if linkedin_count > 0 and unique_scraped[0].get("profile_url", "").endswith("-mock") else ""]
     )
 
+
+@router.post(
+    "/{job_id}/run-pipeline",
+    response_model=PipelineResponse,
+    summary="Run full end-to-end pipeline",
+    description=(
+        "Triggers the full pipeline for a job:\n"
+        "1. Scrape candidates (LinkedIn/Indeed)\n"
+        "2. Score all candidates using semantic embeddings\n"
+        "3. Apply shortlisting logic\n"
+        "Returns a summary of the pipeline execution."
+    ),
+)
+async def run_pipeline(
+    job_id: uuid.UUID,
+    payload: ScrapeRequest,
+    db: AsyncSession = Depends(get_db),
+) -> PipelineResponse:
+    """POST /jobs/{job_id}/run-pipeline"""
+    logger.info("Starting pipeline for job_id=%s", job_id)
+    
+    # 1. Scrape candidates
+    scrape_resp = await scrape_candidates(job_id=job_id, payload=payload, db=db)
+    
+    # 2. Score candidates
+    score_req = ScoreAllRequest(job_id=job_id)
+    score_resp = await score_all_candidates(payload=score_req, db=db)
+    
+    logger.info("Pipeline completed for job_id=%s. Scraped=%d, Scored=%d, Shortlisted=%d",
+                job_id, scrape_resp.total_added, score_resp.total_scored, score_resp.total_shortlisted)
+                
+    return PipelineResponse(
+        job_id=job_id,
+        candidates_scraped=scrape_resp.total_added,
+        candidates_scored=score_resp.total_scored,
+        shortlisted_count=score_resp.total_shortlisted,
+        warnings=scrape_resp.warnings
+    )
