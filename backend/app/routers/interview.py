@@ -454,3 +454,119 @@ async def transcribe_answer_endpoint(
     )
 
     return TranscribeResponse(question_id=body.question_id, transcript=transcript)
+
+
+# ---------------------------------------------------------------------------
+# Phase 2 — Answer Scoring
+# ---------------------------------------------------------------------------
+
+
+class ScoreAnswersResponse(BaseModel):
+    scores: list
+    overall_interview_score: float
+
+
+@router.post(
+    "/{token}/score-answers",
+    response_model=ScoreAnswersResponse,
+    summary="Score all transcribed answers for an interview session",
+)
+async def score_answers(
+    token: str,
+    db: AsyncSession = Depends(get_db),
+) -> ScoreAnswersResponse:
+    """
+    POST /interview/{token}/score-answers
+
+    Iterates over all answers that have a non-empty transcript, calls Gemini
+    to score each on relevance/depth/communication, stores the results in
+    session.answer_scores, and computes an overall interview score.
+
+    Must be called after /transcribe has been run for each answer.
+    """
+    from app.services.answer_scorer import score_answer as _score_answer  # noqa: PLC0415
+
+    # 1. Look up candidate by token
+    query = select(Candidate).where(Candidate.interview_token == token)
+    result = await db.execute(query)
+    candidate = result.scalar_one_or_none()
+
+    if not candidate:
+        raise HTTPException(status_code=404, detail="Invalid or expired interview token")
+
+    # 2. Fetch interview session by candidate_id + job_id
+    session_query = select(InterviewSession).where(
+        InterviewSession.candidate_id == candidate.id,
+        InterviewSession.job_id == candidate.job_id,
+    )
+    session_result = await db.execute(session_query)
+    session = session_result.scalar_one_or_none()
+
+    if not session:
+        raise HTTPException(
+            status_code=404,
+            detail="No interview session found. Call /questions first.",
+        )
+
+    # 3. Fetch the Job record
+    job_query = select(Job).where(Job.id == candidate.job_id)
+    job_result = await db.execute(job_query)
+    job = job_result.scalar_one_or_none()
+
+    if not job:
+        raise HTTPException(status_code=404, detail=f"Job {candidate.job_id} not found.")
+
+    # 4. Filter answers to only those with a non-empty transcript
+    all_answers: list = list(session.answers or [])
+    answered = [
+        a for a in all_answers
+        if isinstance(a.get("transcript"), str) and a["transcript"].strip()
+    ]
+
+    if not answered:
+        raise HTTPException(
+            status_code=400,
+            detail="No transcribed answers found. Run /transcribe for each answer first.",
+        )
+
+    # 5. Build a quick lookup of questions by id
+    questions_by_id: dict = {q["id"]: q for q in (session.questions or [])}
+
+    # 6. Score each answered question
+    scored: list = []
+    for answer in answered:
+        qid = answer["question_id"]
+        question = questions_by_id.get(qid)
+        if not question:
+            logger.warning("No question found for question_id=%s — skipping.", qid)
+            continue
+        score_dict = await _score_answer(question, answer["transcript"], job)
+        scored.append(score_dict)
+
+    if not scored:
+        raise HTTPException(
+            status_code=400,
+            detail="Could not match any answers to questions.",
+        )
+
+    # 7. Compute overall_interview_score: mean of per-answer sub-score means
+    per_answer_means = [
+        (s["relevance"] + s["depth"] + s["communication"]) / 3.0
+        for s in scored
+    ]
+    overall = sum(per_answer_means) / len(per_answer_means)
+
+    # 8. Reassign JSONB columns (full replacement required for SQLAlchemy dirty-tracking)
+    session.answer_scores = scored
+    session.overall_interview_score = overall
+    await db.commit()
+
+    logger.info(
+        "Scored %d answers for candidate %s — overall_interview_score=%.2f",
+        len(scored),
+        candidate.id,
+        overall,
+    )
+
+    return ScoreAnswersResponse(scores=scored, overall_interview_score=overall)
+

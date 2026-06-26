@@ -11,7 +11,7 @@ Constraints:
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import Column, DateTime, ForeignKey, UniqueConstraint
+from sqlalchemy import Column, DateTime, Float, ForeignKey, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import relationship
 
@@ -61,6 +61,23 @@ class InterviewSession(Base):
 
     started_at = Column(DateTime(timezone=True), nullable=True)
     completed_at = Column(DateTime(timezone=True), nullable=True, default=None)
+
+    # Scoring columns added in Day 4 Phase 2
+    answer_scores = Column(
+        JSONB,
+        nullable=True,
+        comment="List of {question_id, relevance, depth, communication, feedback, red_flag}",
+    )
+    overall_interview_score = Column(
+        Float,
+        nullable=True,
+        comment="Mean of per-answer (relevance+depth+communication)/3 scores",
+    )
+    scorecard = Column(
+        JSONB,
+        nullable=True,
+        comment="Gemini-generated holistic scorecard dict",
+    )
 
     # Relationships
     candidate = relationship("Candidate", back_populates="interview_session")
