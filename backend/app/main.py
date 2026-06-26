@@ -10,21 +10,39 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.routers import jobs, candidates, interview
 
+from contextlib import asynccontextmanager
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Pre-warm Whisper model so the first transcription request is not slow
+    import asyncio
+    from app.services.transcriber import _get_whisper_model
+    loop = asyncio.get_event_loop()
+    await loop.run_in_executor(None, _get_whisper_model)
+    print("[startup] Whisper model pre-warmed.")
+    yield
+    # Shutdown: nothing to clean up
+
 app = FastAPI(
     title="Alfaleus",
     description="AI-Powered Talent Screening Platform",
     version="0.1.0",
     docs_url="/docs",
     redoc_url="/redoc",
+    lifespan=lifespan,
 )
 
 # ---------------------------------------------------------------------------
 # Middleware
 # ---------------------------------------------------------------------------
 
+import os
+_cors_origins_raw = os.getenv("CORS_ALLOWED_ORIGINS", "*")
+_cors_origins = [o.strip() for o in _cors_origins_raw.split(",")] if _cors_origins_raw != "*" else ["*"]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Tighten in production
+    allow_origins=_cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

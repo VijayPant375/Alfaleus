@@ -298,6 +298,7 @@ async def send_invites(
     
     for candidate in candidates:
         candidate.interview_token = uuid.uuid4().hex
+        candidate.interview_token_created_at = datetime.now(timezone.utc)
         
         success = await send_interview_invite(candidate, job)
         if success:

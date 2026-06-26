@@ -66,6 +66,7 @@ class Candidate(Base):
         comment="not_invited | invited | in_progress | completed",
     )
     interview_token = Column(String(64), nullable=True, unique=True)
+    interview_token_created_at = Column(DateTime(timezone=True), nullable=True)
 
     created_at = Column(
         DateTime(timezone=True),

@@ -13,7 +13,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -25,6 +25,7 @@ from app.models.score import Score
 from app.schemas.candidate import CandidateCreate, CandidateResponse
 from app.schemas.score import ScoreResponse
 from app.services.scorer import score_candidate
+from app.services.email_service import send_interview_invite
 
 logger = logging.getLogger(__name__)
 
@@ -181,6 +182,7 @@ async def score_single_candidate(
     await db.flush()
     await db.refresh(candidate)
     await db.refresh(score)
+    await db.commit()
 
     return SingleScoreResponse(
         candidate=CandidateResponse.model_validate(candidate),
@@ -302,22 +304,22 @@ async def score_all_candidates(
     summary="List candidates for a job",
 )
 async def list_candidates(
-    job_id: uuid.UUID = Query(..., description="Job ID to filter candidates"),
+    job_id: uuid.UUID = Query(...),
     db: AsyncSession = Depends(get_db),
 ) -> list[CandidateResponse]:
-    """GET /candidates?job_id=<uuid>"""
+    from sqlalchemy.orm import outerjoin
     result = await db.execute(
-        select(Candidate)
+        select(Candidate, InterviewSession)
+        .outerjoin(
+            InterviewSession,
+            (InterviewSession.candidate_id == Candidate.id) &
+            (InterviewSession.job_id == Candidate.job_id)
+        )
         .where(Candidate.job_id == job_id)
         .order_by(Candidate.created_at.desc())
     )
-    candidates = result.scalars().all()
-
-    responses: list[CandidateResponse] = []
-    for candidate in candidates:
-        session = await _fetch_session(candidate, db)
-        responses.append(_build_candidate_response(candidate, session))
-    return responses
+    rows = result.all()
+    return [_build_candidate_response(candidate, session) for candidate, session in rows]
 
 
 # ---------------------------------------------------------------------------
@@ -367,5 +369,66 @@ async def override_shortlist(
     
     await db.commit()
     await db.refresh(candidate)
-    
-    return CandidateResponse.model_validate(candidate)
+    session = await _fetch_session(candidate, db)
+    return _build_candidate_response(candidate, session)
+
+
+# ---------------------------------------------------------------------------
+# GET /candidates/{candidate_id}/score
+# ---------------------------------------------------------------------------
+
+@router.get(
+    "/{candidate_id}/score",
+    response_model=ScoreResponse,
+    summary="Get candidate score",
+)
+async def get_candidate_score(
+    candidate_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+) -> ScoreResponse:
+    result = await db.execute(
+        select(Score)
+        .where(Score.candidate_id == candidate_id)
+        .order_by(Score.created_at.desc())
+        .limit(1)
+    )
+    score = result.scalar_one_or_none()
+    if not score:
+        raise HTTPException(status_code=404, detail="No score found for this candidate.")
+    return ScoreResponse.model_validate(score)
+
+
+# ---------------------------------------------------------------------------
+# POST /candidates/{candidate_id}/invite
+# ---------------------------------------------------------------------------
+
+@router.post(
+    "/{candidate_id}/invite",
+    summary="Invite a candidate",
+)
+async def invite_candidate(
+    candidate_id: uuid.UUID,
+    response: Response,
+    db: AsyncSession = Depends(get_db),
+):
+    candidate = await _get_candidate_or_404(candidate_id, db)
+    job = await _get_job_or_404(candidate.job_id, db)
+
+    if candidate.interview_status in ("in_progress", "completed"):
+        raise HTTPException(
+            status_code=400,
+            detail="Candidate has already started or completed their interview."
+        )
+
+    token = uuid.uuid4().hex
+    candidate.interview_token = token
+    candidate.interview_token_created_at = datetime.now(timezone.utc)
+    candidate.interview_status = "invited"
+
+    success = await send_interview_invite(candidate, job)
+    await db.commit()
+
+    if not success:
+        response.status_code = 207
+        return {"invited": True, "email_sent": False, "token": token}
+    return {"invited": True, "email_sent": True, "token": token}

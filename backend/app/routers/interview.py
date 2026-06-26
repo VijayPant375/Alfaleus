@@ -68,6 +68,20 @@ async def get_interview_status(
 
     candidate, job = row
 
+    from datetime import timedelta
+    TOKEN_EXPIRY_DAYS = 7
+
+    if (
+        candidate.interview_token_created_at is not None
+        and candidate.interview_status not in ("in_progress", "completed")
+    ):
+        age = datetime.now(timezone.utc) - candidate.interview_token_created_at
+        if age > timedelta(days=TOKEN_EXPIRY_DAYS):
+            raise HTTPException(
+                status_code=410,
+                detail="This interview link has expired. Please contact the recruiter for a new invitation.",
+            )
+
     return InterviewStatusResponse(
         candidate_name=candidate.name,
         job_title=job.title,
@@ -533,15 +547,18 @@ async def score_answers(
     questions_by_id: dict = {q["id"]: q for q in (session.questions or [])}
 
     # 6. Score each answered question
-    scored: list = []
-    for answer in answered:
+    import asyncio
+
+    async def _score_one(answer: dict) -> dict | None:
         qid = answer["question_id"]
         question = questions_by_id.get(qid)
         if not question:
             logger.warning("No question found for question_id=%s — skipping.", qid)
-            continue
-        score_dict = await _score_answer(question, answer["transcript"], job)
-        scored.append(score_dict)
+            return None
+        return await _score_answer(question, answer["transcript"], job)
+
+    scored_raw = await asyncio.gather(*[_score_one(a) for a in answered])
+    scored = [s for s in scored_raw if s is not None]
 
     if not scored:
         raise HTTPException(

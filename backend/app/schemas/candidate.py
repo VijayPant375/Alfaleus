@@ -65,6 +65,7 @@ class CandidateResponse(BaseModel):
     shortlist_override: bool
     interview_status: str
     interview_token: Optional[str] = None
+    interview_token_created_at: Optional[datetime] = None
     created_at: datetime
 
     # Interview session fields — populated when interview is completed
