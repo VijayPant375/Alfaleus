@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
+import sqlalchemy as sa
 
 from app.database import get_db
 from app.models.job import Job
@@ -120,16 +121,40 @@ async def list_jobs(
     db: AsyncSession = Depends(get_db),
 ) -> list[JobResponse]:
     """GET /jobs — Return all jobs ordered by created_at descending."""
+    from app.models.score import Score
+
     result = await db.execute(
-        select(Job, func.count(Candidate.id).label("candidate_count"))
+        select(
+            Job,
+            func.count(Candidate.id.distinct()).label("candidate_count"),
+            func.avg(Score.total_score).label("avg_score"),
+            func.sum(
+                func.cast(
+                    Candidate.interview_status == "completed",
+                    sa.Integer
+                )
+            ).label("completed_count"),
+            func.sum(
+                func.cast(
+                    Candidate.interview_status.in_(["invited", "in_progress", "completed"]),
+                    sa.Integer
+                )
+            ).label("invited_count"),
+        )
         .outerjoin(Candidate, Job.id == Candidate.job_id)
+        .outerjoin(Score, (Score.job_id == Job.id) & (Score.candidate_id == Candidate.id))
         .group_by(Job.id)
         .order_by(Job.created_at.desc())
     )
     rows = result.all()
     jobs = []
-    for job, count in rows:
-        job.candidate_count = count
+    for row in rows:
+        job = row.Job
+        job.candidate_count = row.candidate_count or 0
+        job.avg_score = float(row.avg_score) if row.avg_score is not None else None
+        invited = row.invited_count or 0
+        completed = row.completed_count or 0
+        job.interview_completion_rate = (completed / invited) if invited > 0 else None
         jobs.append(JobResponse.model_validate(job))
     return jobs
 

@@ -13,6 +13,7 @@
     },
     "android": {
       "package": "com.alfaleus.app",
+      "versionCode": 1,
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/images/android-icon-foreground.png",

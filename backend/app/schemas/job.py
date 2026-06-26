@@ -71,6 +71,8 @@ class JobResponse(BaseModel):
     status: str
     created_at: datetime
     candidate_count: Optional[int] = 0
+    avg_score: Optional[float] = None
+    interview_completion_rate: Optional[float] = None
 
     model_config = {"from_attributes": True}
 
