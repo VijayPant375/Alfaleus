@@ -186,7 +186,9 @@ export default function ComparePage() {
         // Try to get their scores (non-blocking)
         const scoreResults = await Promise.allSettled(
           candidateIds.map((id) =>
-            fetch(`${API}/candidates/${id}`).then((r) => r.json())
+            fetch(`${API}/candidates/${id}/score`).then((r) =>
+              r.ok ? r.json() : null
+            )
           )
         );
 

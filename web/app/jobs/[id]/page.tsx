@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
+import Link from "next/link";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
@@ -333,7 +334,7 @@ export default function JobPipelinePage() {
   const [error, setError] = useState("");
   const [jobTitle, setJobTitle] = useState("");
   const [scorecardCandidate, setScorecardCandidate] = useState<CandidateWithScore | null>(null);
-  const [overriding, setOverriding] = useState<string | null>(null);
+  const [loadingAction, setLoadingAction] = useState<string | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
 
   const fetchData = useCallback(async () => {
@@ -350,20 +351,21 @@ export default function JobPipelinePage() {
       const cands: Candidate[] = await candRes.json();
       setJobTitle(job.title);
 
-      // Fetch scores for all candidates
-      const scoresRes = await fetch(`${API}/candidates/score-all`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ job_id: jobId }),
-      }).catch(() => null);
+      // Fetch profile scores concurrently — non-blocking
+      const scoreResults = await Promise.allSettled(
+        cands.map((c) =>
+          fetch(`${API}/candidates/${c.id}/score`).then((r) =>
+            r.ok ? r.json() : null
+          )
+        )
+      );
 
-      let scoreMap: Record<string, Score> = {};
-      if (scoresRes && scoresRes.ok) {
-        const scoresData = await scoresRes.json();
-        for (const r of scoresData.results ?? []) {
-          scoreMap[r.candidate.id] = r.score;
+      const scoreMap: Record<string, Score> = {};
+      scoreResults.forEach((result, i) => {
+        if (result.status === "fulfilled" && result.value) {
+          scoreMap[cands[i].id] = result.value;
         }
-      }
+      });
 
       const enriched: CandidateWithScore[] = cands.map((c) => ({
         ...c,
@@ -386,7 +388,7 @@ export default function JobPipelinePage() {
   }, [jobId]);
 
   const handleOverride = async (candidate: CandidateWithScore) => {
-    setOverriding(candidate.id);
+    setLoadingAction(`override-${candidate.id}`);
     try {
       const res = await fetch(`${API}/candidates/${candidate.id}/override`, {
         method: "PATCH",
@@ -398,7 +400,22 @@ export default function JobPipelinePage() {
     } catch {
       alert("Failed to override shortlist.");
     } finally {
-      setOverriding(null);
+      setLoadingAction(null);
+    }
+  };
+
+  const handleInvite = async (candidate: CandidateWithScore) => {
+    setLoadingAction(`invite-${candidate.id}`);
+    try {
+      const res = await fetch(`${API}/candidates/${candidate.id}/invite`, {
+        method: "POST",
+      });
+      if (!res.ok) throw new Error("Invite failed");
+      await fetchData();
+    } catch {
+      alert("Failed to invite candidate.");
+    } finally {
+      setLoadingAction(null);
     }
   };
 
@@ -586,9 +603,11 @@ export default function JobPipelinePage() {
 
                     {/* Name */}
                     <td style={{ padding: "14px 16px" }}>
-                      <div style={{ fontSize: 14, fontWeight: 600, color: "#f0f0ff" }}>
-                        {c.name ?? "—"}
-                      </div>
+                      <Link href={`/jobs/${jobId}/candidates/${c.id}`} style={{ textDecoration: "none" }}>
+                        <div style={{ fontSize: 14, fontWeight: 600, color: "#f0f0ff" }}>
+                          {c.name ?? "—"}
+                        </div>
+                      </Link>
                     </td>
 
                     {/* Title */}
@@ -628,7 +647,7 @@ export default function JobPipelinePage() {
                         <button
                           id={`override-btn-${c.id}`}
                           onClick={() => handleOverride(c)}
-                          disabled={overriding === c.id}
+                          disabled={loadingAction === `override-${c.id}`}
                           style={{
                             fontSize: 12,
                             fontWeight: 500,
@@ -639,12 +658,35 @@ export default function JobPipelinePage() {
                             padding: "5px 10px",
                             cursor: "pointer",
                             transition: "opacity 0.2s",
-                            opacity: overriding === c.id ? 0.5 : 1,
+                            opacity: loadingAction === `override-${c.id}` ? 0.5 : 1,
                             whiteSpace: "nowrap",
                           }}
                         >
-                          {overriding === c.id ? "…" : c.shortlisted ? "Remove" : "Shortlist"}
+                          {loadingAction === `override-${c.id}` ? "…" : c.shortlisted ? "Remove" : "Shortlist"}
                         </button>
+
+                        {c.interview_status === "not_invited" && (
+                          <button
+                            id={`invite-btn-${c.id}`}
+                            onClick={() => handleInvite(c)}
+                            disabled={loadingAction === `invite-${c.id}`}
+                            style={{
+                              fontSize: 12,
+                              fontWeight: 500,
+                              color: "#eab308",
+                              background: "rgba(234,179,8,0.08)",
+                              border: "1px solid rgba(234,179,8,0.3)",
+                              borderRadius: 8,
+                              padding: "5px 10px",
+                              cursor: "pointer",
+                              transition: "opacity 0.2s",
+                              opacity: loadingAction === `invite-${c.id}` ? 0.5 : 1,
+                              whiteSpace: "nowrap",
+                            }}
+                          >
+                            {loadingAction === `invite-${c.id}` ? "…" : "Invite"}
+                          </button>
+                        )}
 
                         {c.interview_status === "completed" && c.scorecard && (
                           <button
