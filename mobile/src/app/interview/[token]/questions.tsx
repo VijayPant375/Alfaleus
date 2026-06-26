@@ -7,9 +7,11 @@ import {
   Text,
   TouchableOpacity,
   View,
+  Linking,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { CameraView, useCameraPermissions, useMicrophonePermissions } from 'expo-camera';
+import NetInfo from '@react-native-community/netinfo';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -59,6 +61,37 @@ function formatTime(seconds: number): string {
   return `${m}:${s.toString().padStart(2, '0')}`;
 }
 
+const MAX_CHUNK_RETRIES = 3;
+const RETRY_DELAY_MS = 1000;
+
+async function uploadChunkWithRetry(
+  form: FormData,
+  apiUrl: string,
+  token: string,
+  chunkIndex: number,
+): Promise<void> {
+  let lastError: Error | null = null;
+  for (let attempt = 1; attempt <= MAX_CHUNK_RETRIES; attempt++) {
+    try {
+      const res = await fetch(`${apiUrl}/interview/${token}/upload-chunk`, {
+        method: "POST",
+        body: form,
+      });
+      if (res.ok) return;
+      lastError = new Error(`Server returned ${res.status}`);
+    } catch (e) {
+      lastError = e instanceof Error ? e : new Error("Network error");
+    }
+    if (attempt < MAX_CHUNK_RETRIES) {
+      await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS));
+    }
+  }
+  throw new Error(
+    `We couldn't upload part ${chunkIndex + 1} of your answer after ${MAX_CHUNK_RETRIES} attempts. ` +
+    `Please check your internet connection and try again. (${lastError?.message})`
+  );
+}
+
 async function chunkAndUpload(
   fileUri: string,
   token: string,
@@ -88,15 +121,7 @@ async function chunkAndUpload(
       type: 'video/webm',
     } as any);
 
-    // For web / proper blob support use the blob slice
-    const uploadRes = await fetch(`${apiUrl}/interview/${token}/upload-chunk`, {
-      method: 'POST',
-      body: form,
-    });
-
-    if (!uploadRes.ok) {
-      throw new Error(`Chunk ${i} upload failed: ${uploadRes.status}`);
-    }
+    await uploadChunkWithRetry(form, apiUrl, token, i);
   }
 
   // Finalize
@@ -253,6 +278,14 @@ export default function QuestionsScreen() {
 
   const handleRecordingFinished = async (result: { uri: string }) => {
     if (!result?.uri) return;
+
+    const netInfo = await NetInfo.fetch();
+    if (!netInfo.isConnected) {
+      setErrorMsg("You appear to be offline. Please reconnect to the internet and tap Retry.");
+      setScreenState('error');
+      return;
+    }
+
     const question = questions[currentIndex];
     setScreenState('uploading');
     try {
@@ -313,9 +346,11 @@ export default function QuestionsScreen() {
         <Text style={styles.permIcon}>🎥</Text>
         <Text style={styles.permTitle}>Camera & Microphone Required</Text>
         <Text style={styles.permBody}>
-          This interview requires camera and microphone access to record your responses.
-          Please enable both permissions in your device settings and restart the app.
+          To record your interview, Alfaleus needs access to your camera and microphone. Please open your device Settings, find Alfaleus, and enable Camera and Microphone access. Then return to this screen.
         </Text>
+        <TouchableOpacity style={{ marginTop: 24, backgroundColor: '#208AEF', paddingHorizontal: 36, paddingVertical: 14, borderRadius: 12 }} onPress={() => Linking.openSettings()}>
+          <Text style={styles.retryBtnText}>Open Settings</Text>
+        </TouchableOpacity>
       </View>
     );
   }
@@ -328,7 +363,7 @@ export default function QuestionsScreen() {
     return (
       <View style={styles.center}>
         <Text style={styles.errorIcon}>⚠️</Text>
-        <Text style={styles.errorTitle}>Something went wrong</Text>
+        <Text style={styles.errorTitle}>Something went wrong while recording or uploading your answer.</Text>
         <Text style={styles.errorBody}>{errorMsg}</Text>
         <TouchableOpacity style={styles.retryBtn} onPress={fetchQuestions}>
           <Text style={styles.retryBtnText}>Retry</Text>

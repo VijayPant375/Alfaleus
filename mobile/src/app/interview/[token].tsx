@@ -30,7 +30,9 @@ export default function InterviewLandingScreen() {
       const res = await fetch(`${API_URL}/interview/${token}`);
       
       if (!res.ok) {
-        if (res.status === 404) {
+        if (res.status === 410) {
+          setError('This interview link has expired. Please contact the recruiter for a new link.');
+        } else if (res.status === 404) {
           setError('Invalid or expired interview token');
         } else {
           setError('An error occurred while fetching your interview details.');
