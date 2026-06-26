@@ -309,9 +309,10 @@ async def finalize_answer(
     if not candidate:
         raise HTTPException(status_code=404, detail="Invalid or expired interview token")
 
-    # Fetch the InterviewSession for this candidate
+    # Fetch the InterviewSession for this candidate + job (bug fix: must filter by both)
     session_query = select(InterviewSession).where(
         InterviewSession.candidate_id == candidate.id,
+        InterviewSession.job_id == candidate.job_id,
     )
     session_result = await db.execute(session_query)
     session = session_result.scalar_one_or_none()
@@ -355,3 +356,101 @@ async def finalize_answer(
         video_url=video_url,
         answers_submitted=len(current_answers),
     )
+
+
+# ---------------------------------------------------------------------------
+# Phase 1 — Whisper Transcription
+# ---------------------------------------------------------------------------
+
+
+class TranscribeRequest(BaseModel):
+    question_id: int
+
+
+class TranscribeResponse(BaseModel):
+    question_id: int
+    transcript: str
+
+
+@router.post(
+    "/{token}/transcribe",
+    response_model=TranscribeResponse,
+    summary="Transcribe a recorded answer using Whisper",
+)
+async def transcribe_answer_endpoint(
+    token: str,
+    body: TranscribeRequest,
+    db: AsyncSession = Depends(get_db),
+) -> TranscribeResponse:
+    """
+    POST /interview/{token}/transcribe
+
+    Downloads the uploaded video for the given question_id and runs Whisper
+    speech-to-text on it. Updates the transcript field in session.answers and
+    persists. Idempotent — calling again will overwrite the previous transcript.
+    """
+    from app.services.transcriber import transcribe_answer as _transcribe  # noqa: PLC0415
+
+    # 1. Look up candidate by token
+    query = select(Candidate).where(Candidate.interview_token == token)
+    result = await db.execute(query)
+    candidate = result.scalar_one_or_none()
+
+    if not candidate:
+        raise HTTPException(status_code=404, detail="Invalid or expired interview token")
+
+    # 2. Fetch interview session by candidate_id + job_id
+    session_query = select(InterviewSession).where(
+        InterviewSession.candidate_id == candidate.id,
+        InterviewSession.job_id == candidate.job_id,
+    )
+    session_result = await db.execute(session_query)
+    session = session_result.scalar_one_or_none()
+
+    if not session:
+        raise HTTPException(
+            status_code=404,
+            detail="No interview session found. Call /questions first.",
+        )
+
+    # 3. Locate the answer for the requested question_id
+    current_answers: list = list(session.answers or [])
+    matching = [
+        a for a in current_answers if a.get("question_id") == body.question_id
+    ]
+    if not matching:
+        raise HTTPException(
+            status_code=400,
+            detail=f"No answer found for question_id={body.question_id}. Upload video first.",
+        )
+
+    answer = matching[0]
+    video_url: str = answer.get("video_url", "")
+
+    # 4. Transcribe via Whisper (runs in thread pool — never blocks the event loop)
+    transcript = await _transcribe(
+        video_url=video_url,
+        candidate_id=str(candidate.id),
+        question_id=body.question_id,
+    )
+
+    # 5. Reassign answers list (SQLAlchemy requires full reassignment to detect JSONB changes)
+    updated_answers = [
+        (
+            {**a, "transcript": transcript}
+            if a.get("question_id") == body.question_id
+            else a
+        )
+        for a in current_answers
+    ]
+    session.answers = updated_answers
+    await db.commit()
+
+    logger.info(
+        "Transcribed question %d for candidate %s (%d chars)",
+        body.question_id,
+        candidate.id,
+        len(transcript),
+    )
+
+    return TranscribeResponse(question_id=body.question_id, transcript=transcript)
