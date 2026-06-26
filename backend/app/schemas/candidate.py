@@ -67,4 +67,9 @@ class CandidateResponse(BaseModel):
     interview_token: Optional[str] = None
     created_at: datetime
 
+    # Interview session fields — populated when interview is completed
+    scorecard: Optional[Dict[str, Any]] = None
+    overall_interview_score: Optional[float] = None
+    answer_scores: Optional[List[Dict[str, Any]]] = None
+
     model_config = {"from_attributes": True}

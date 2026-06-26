@@ -570,3 +570,100 @@ async def score_answers(
 
     return ScoreAnswersResponse(scores=scored, overall_interview_score=overall)
 
+
+# ---------------------------------------------------------------------------
+# Phase 3 — Scorecard Generation
+# ---------------------------------------------------------------------------
+
+
+@router.post(
+    "/{token}/generate-scorecard",
+    summary="Generate a holistic interview scorecard using Gemini",
+)
+async def generate_scorecard_endpoint(
+    token: str,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """
+    POST /interview/{token}/generate-scorecard
+
+    Synthesises profile scores and interview answer scores into a structured
+    Gemini-generated scorecard. Sets session.completed_at and marks the
+    candidate's interview_status as 'completed'.
+
+    Prerequisites:
+      - /score-answers must have been called first (session.answer_scores must be populated)
+    """
+    from app.models.score import Score  # noqa: PLC0415
+    from app.services.scorecard_generator import generate_scorecard as _generate  # noqa: PLC0415
+
+    # 1. Look up candidate by token
+    query = select(Candidate).where(Candidate.interview_token == token)
+    result = await db.execute(query)
+    candidate = result.scalar_one_or_none()
+
+    if not candidate:
+        raise HTTPException(status_code=404, detail="Invalid or expired interview token")
+
+    # 2. Fetch interview session by candidate_id + job_id
+    session_query = select(InterviewSession).where(
+        InterviewSession.candidate_id == candidate.id,
+        InterviewSession.job_id == candidate.job_id,
+    )
+    session_result = await db.execute(session_query)
+    session = session_result.scalar_one_or_none()
+
+    if not session:
+        raise HTTPException(
+            status_code=404,
+            detail="No interview session found. Call /questions first.",
+        )
+
+    # 3. Guard: answer scores must exist before generating a scorecard
+    if not session.answer_scores:
+        raise HTTPException(
+            status_code=400,
+            detail="Score answers before generating scorecard",
+        )
+
+    # 4. Fetch the profile Score record
+    score_query = select(Score).where(
+        Score.candidate_id == candidate.id,
+        Score.job_id == candidate.job_id,
+    )
+    score_result = await db.execute(score_query)
+    profile_score = score_result.scalar_one_or_none()
+
+    if not profile_score:
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                f"No profile score found for candidate {candidate.id}. "
+                "Run /candidates/score first."
+            ),
+        )
+
+    # 5. Fetch the Job record
+    job_query = select(Job).where(Job.id == candidate.job_id)
+    job_result = await db.execute(job_query)
+    job = job_result.scalar_one_or_none()
+
+    if not job:
+        raise HTTPException(status_code=404, detail=f"Job {candidate.job_id} not found.")
+
+    # 6. Generate the scorecard via Gemini (2-attempt retry inside the service)
+    scorecard = await _generate(job, candidate, session, profile_score)
+
+    # 7. Persist scorecard, mark session complete, update candidate status
+    session.scorecard = scorecard  # full reassignment for JSONB dirty-tracking
+    session.completed_at = datetime.now(timezone.utc)
+    candidate.interview_status = "completed"
+    await db.commit()
+
+    logger.info(
+        "Scorecard generated for candidate %s — recommendation=%s",
+        candidate.id,
+        scorecard.get("overall_recommendation"),
+    )
+
+    return scorecard

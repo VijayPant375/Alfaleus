@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.models.candidate import Candidate
+from app.models.interview_session import InterviewSession
 from app.models.job import Job
 from app.models.score import Score
 from app.schemas.candidate import CandidateCreate, CandidateResponse
@@ -49,6 +50,27 @@ async def _get_candidate_or_404(candidate_id: uuid.UUID, db: AsyncSession) -> Ca
     if not candidate:
         raise HTTPException(status_code=404, detail=f"Candidate {candidate_id} not found.")
     return candidate
+
+
+async def _fetch_session(candidate: Candidate, db: AsyncSession):
+    """Fetch the InterviewSession for a candidate, or None if not found."""
+    result = await db.execute(
+        select(InterviewSession).where(
+            InterviewSession.candidate_id == candidate.id,
+            InterviewSession.job_id == candidate.job_id,
+        )
+    )
+    return result.scalar_one_or_none()
+
+
+def _build_candidate_response(candidate: Candidate, session=None) -> CandidateResponse:
+    """Build a CandidateResponse, merging in interview session data if available."""
+    data = CandidateResponse.model_validate(candidate)
+    if session:
+        data.scorecard = session.scorecard
+        data.overall_interview_score = session.overall_interview_score
+        data.answer_scores = session.answer_scores
+    return data
 
 
 def _infer_confidence(candidate_data: CandidateCreate) -> str:
@@ -290,7 +312,12 @@ async def list_candidates(
         .order_by(Candidate.created_at.desc())
     )
     candidates = result.scalars().all()
-    return [CandidateResponse.model_validate(c) for c in candidates]
+
+    responses: list[CandidateResponse] = []
+    for candidate in candidates:
+        session = await _fetch_session(candidate, db)
+        responses.append(_build_candidate_response(candidate, session))
+    return responses
 
 
 # ---------------------------------------------------------------------------
@@ -309,7 +336,8 @@ async def get_candidate(
 ) -> CandidateResponse:
     """GET /candidates/{candidate_id}"""
     candidate = await _get_candidate_or_404(candidate_id, db)
-    return CandidateResponse.model_validate(candidate)
+    session = await _fetch_session(candidate, db)
+    return _build_candidate_response(candidate, session)
 
 
 # ---------------------------------------------------------------------------
