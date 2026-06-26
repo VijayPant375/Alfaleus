@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, func
 
 from app.database import get_db
 from app.models.job import Job
@@ -121,10 +121,17 @@ async def list_jobs(
 ) -> list[JobResponse]:
     """GET /jobs — Return all jobs ordered by created_at descending."""
     result = await db.execute(
-        select(Job).order_by(Job.created_at.desc())
+        select(Job, func.count(Candidate.id).label("candidate_count"))
+        .outerjoin(Candidate, Job.id == Candidate.job_id)
+        .group_by(Job.id)
+        .order_by(Job.created_at.desc())
     )
-    jobs = result.scalars().all()
-    return [JobResponse.model_validate(j) for j in jobs]
+    rows = result.all()
+    jobs = []
+    for job, count in rows:
+        job.candidate_count = count
+        jobs.append(JobResponse.model_validate(job))
+    return jobs
 
 
 @router.post(

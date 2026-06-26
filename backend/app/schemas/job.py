@@ -70,6 +70,7 @@ class JobResponse(BaseModel):
     shortlist_threshold: float
     status: str
     created_at: datetime
+    candidate_count: Optional[int] = 0
 
     model_config = {"from_attributes": True}
 

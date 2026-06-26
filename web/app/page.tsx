@@ -12,6 +12,7 @@ interface Job {
   role_level: string;
   created_at: string;
   required_skills: { name: string; seniority: string }[];
+  candidate_count?: number;
 }
 
 function StatusBadge({ status }: { status: string }) {
@@ -265,19 +266,29 @@ export default function JobsPage() {
                 </div>
               )}
 
-              {/* CTA */}
+              {/* Footer */}
               <div
                 style={{
                   display: "flex",
                   alignItems: "center",
-                  justifyContent: "flex-end",
-                  color: "#6c63ff",
-                  fontSize: 13,
-                  fontWeight: 500,
-                  gap: 4,
+                  justifyContent: "space-between",
+                  marginTop: "auto",
+                  paddingTop: 12,
+                  borderTop: "1px solid #1e1e2a",
                 }}
               >
-                View Pipeline →
+                <div style={{ fontSize: 13, color: "#9898bb", fontWeight: 500 }}>
+                  👥 {job.candidate_count ?? 0} candidate{(job.candidate_count ?? 0) !== 1 ? "s" : ""}
+                </div>
+                <div
+                  style={{
+                    color: "#6c63ff",
+                    fontSize: 13,
+                    fontWeight: 500,
+                  }}
+                >
+                  View Pipeline →
+                </div>
               </div>
             </button>
           ))}
