@@ -28,6 +28,7 @@ type ScreenState =
   | 'loading'        // fetching questions
   | 'permissions'    // requesting cam/mic permissions
   | 'permission_denied'
+  | 'thinking'       // countdown before question
   | 'question'       // showing question, not yet recording
   | 'recording'      // actively recording
   | 'uploading'      // chunking + uploading
@@ -38,6 +39,7 @@ type ScreenState =
 // ---------------------------------------------------------------------------
 
 const CHUNK_SIZE_BYTES = 2 * 1024 * 1024; // 2 MB
+const THINK_TIME_SECONDS = 30;
 
 const TYPE_LABELS: Record<Question['type'], string> = {
   technical: 'Technical',
@@ -207,8 +209,8 @@ export default function QuestionsScreen() {
         setScreenState('permission_denied');
       } else {
         setCurrentIndex(0);
-        setTimeLeft(questions[0]?.time_limit_seconds ?? 120);
-        setScreenState('question');
+        setTimeLeft(THINK_TIME_SECONDS);
+        setScreenState('thinking');
       }
     })();
   }, [screenState]);
@@ -218,6 +220,20 @@ export default function QuestionsScreen() {
   // ---------------------------------------------------------------------------
 
   useEffect(() => {
+    if (screenState === 'thinking') {
+      timerRef.current = setInterval(() => {
+        setTimeLeft(prev => {
+          if (prev <= 1) {
+            clearInterval(timerRef.current!);
+            setScreenState('question');
+            return questions[currentIndex]?.time_limit_seconds ?? 120;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+      return () => { if (timerRef.current) clearInterval(timerRef.current); };
+    }
+
     if (screenState !== 'recording') {
       if (timerRef.current) clearInterval(timerRef.current);
       return;
@@ -233,7 +249,7 @@ export default function QuestionsScreen() {
       });
     }, 1000);
     return () => { if (timerRef.current) clearInterval(timerRef.current); };
-  }, [screenState]);
+  }, [screenState, currentIndex, questions]);
 
   // ---------------------------------------------------------------------------
   // Pulse animation for REC indicator
@@ -311,7 +327,8 @@ export default function QuestionsScreen() {
       return;
     }
     setCurrentIndex(nextIndex);
-    setTimeLeft(questions[nextIndex].time_limit_seconds);
+    setTimeLeft(THINK_TIME_SECONDS);
+    setScreenState('thinking');
   };
 
   // ---------------------------------------------------------------------------
@@ -427,9 +444,27 @@ export default function QuestionsScreen() {
 
         <Text style={styles.questionText}>{currentQuestion?.question}</Text>
 
+        {screenState === 'thinking' && (
+          <View style={styles.thinkingContainer}>
+            <Text style={styles.thinkingNumber}>{timeLeft}s</Text>
+            <Text style={styles.thinkingLabel}>Think time remaining</Text>
+          </View>
+        )}
+
         {/* Controls */}
         <View style={styles.controls}>
-          {isAnswered ? (
+          {screenState === 'thinking' ? (
+            <TouchableOpacity 
+              style={styles.skipBtn} 
+              onPress={() => {
+                if (timerRef.current) clearInterval(timerRef.current);
+                setScreenState('question');
+                setTimeLeft(currentQuestion?.time_limit_seconds ?? 120);
+              }}
+            >
+              <Text style={styles.skipBtnText}>Skip & Record Now</Text>
+            </TouchableOpacity>
+          ) : isAnswered ? (
             // After recording + upload: show Next / Submit
             <TouchableOpacity style={styles.nextBtn} onPress={handleNext}>
               <Text style={styles.nextBtnText}>
@@ -601,6 +636,36 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 16,
     fontWeight: '700',
+  },
+  skipBtn: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#333',
+    borderRadius: 14,
+    paddingVertical: 16,
+  },
+  skipBtnText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  thinkingContainer: {
+    alignItems: 'center',
+    paddingVertical: 24,
+  },
+  thinkingNumber: {
+    color: '#F39C12',
+    fontSize: 48,
+    fontWeight: '800',
+    fontVariant: ['tabular-nums'],
+  },
+  thinkingLabel: {
+    color: '#aaa',
+    fontSize: 14,
+    marginTop: 8,
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+    fontWeight: '600',
   },
 
   // Loading / uploading
