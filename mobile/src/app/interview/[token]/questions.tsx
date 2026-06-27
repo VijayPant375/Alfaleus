@@ -176,6 +176,20 @@ export default function QuestionsScreen() {
   const fetchQuestions = useCallback(async () => {
     try {
       setScreenState('loading');
+      
+      const startRes = await fetch(`${API_URL}/interview/${token}/start`, {
+        method: 'POST',
+      });
+      if (!startRes.ok) {
+        throw new Error(`Failed to start interview: HTTP ${startRes.status}`);
+      }
+      const session = await startRes.json();
+      
+      const answers = session.answers || [];
+      const newAnsweredSet = new Set<number>();
+      answers.forEach((ans: any) => newAnsweredSet.add(ans.question_id));
+      setAnsweredSet(newAnsweredSet);
+
       const res = await fetch(`${API_URL}/interview/${token}/questions`, {
         method: 'POST',
       });
@@ -185,8 +199,23 @@ export default function QuestionsScreen() {
       }
       const data: Question[] = await res.json();
       setQuestions(data);
-      // After fetching, request permissions
-      setScreenState('permissions');
+
+      let firstUnanswered = 0;
+      for (let i = 0; i < data.length; i++) {
+        if (!newAnsweredSet.has(data[i].id)) {
+          firstUnanswered = i;
+          break;
+        }
+      }
+
+      if (newAnsweredSet.size === data.length && data.length > 0) {
+        setCurrentIndex(data.length - 1);
+        setScreenState('review');
+      } else {
+        setCurrentIndex(firstUnanswered);
+        // After fetching, request permissions
+        setScreenState('permissions');
+      }
     } catch (e: any) {
       setErrorMsg(e.message || 'Failed to load questions.');
       setScreenState('error');
@@ -209,7 +238,6 @@ export default function QuestionsScreen() {
       if (!cam?.granted || !mic?.granted) {
         setScreenState('permission_denied');
       } else {
-        setCurrentIndex(0);
         setTimeLeft(THINK_TIME_SECONDS);
         setScreenState('thinking');
       }
