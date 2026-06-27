@@ -25,6 +25,16 @@ interface Scorecard {
   suggested_follow_up_questions: string[];
 }
 
+interface Question {
+  id: number;
+  question: string;
+}
+
+interface AnswerScore {
+  question_id: number;
+  answer_summary?: string;
+}
+
 interface Candidate {
   id: string;
   name: string | null;
@@ -35,6 +45,20 @@ interface Candidate {
   overall_interview_score: number | null;
   scorecard: Scorecard | null;
   score?: Score;
+  questions?: Question[] | null;
+  answer_scores?: AnswerScore[] | null;
+}
+
+interface RankingItem {
+  rank: number;
+  candidate_id: number;
+  candidate_name: string;
+  justification: string;
+}
+
+interface CompareResponse {
+  ranking: RankingItem[];
+  comparison_summary: string;
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -161,6 +185,8 @@ export default function ComparePage() {
   const candidateIds = rawIds.split(",").filter(Boolean).slice(0, 3);
 
   const [candidates, setCandidates] = useState<Candidate[]>([]);
+  const [rankingData, setRankingData] = useState<CompareResponse | null>(null);
+  const [openQuestionId, setOpenQuestionId] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -200,6 +226,25 @@ export default function ComparePage() {
         });
 
         setCandidates(enriched);
+
+        // Try to get AI ranking (non-blocking)
+        if (candidateIds.length >= 2 && candidateIds.length <= 3) {
+          try {
+            const compareRes = await fetch(`${API}/interview/compare`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                job_id: parseInt(jobId, 10),
+                candidate_ids: candidateIds.map((id) => parseInt(id, 10)),
+              }),
+            });
+            if (compareRes.ok) {
+              setRankingData(await compareRes.json());
+            }
+          } catch (err) {
+            // Ignore, degrade gracefully
+          }
+        }
       } catch (e: unknown) {
         setError(e instanceof Error ? e.message : "Failed to load candidates.");
       } finally {
@@ -267,6 +312,136 @@ export default function ComparePage() {
       <p style={{ margin: "0 0 32px", color: "#9898bb", fontSize: 14 }}>
         Comparing {candidates.length} candidate{candidates.length !== 1 ? "s" : ""} side-by-side.
       </p>
+
+      {rankingData && rankingData.ranking && rankingData.ranking.length > 0 && (
+        <div
+          style={{
+            background: "#13131a",
+            border: "1px solid #2a2a3a",
+            borderRadius: 20,
+            padding: 24,
+            marginBottom: 32,
+          }}
+        >
+          <h2 style={{ fontSize: 20, fontWeight: 700, color: "#f0f0ff", margin: "0 0 20px", display: "flex", alignItems: "center", gap: 8 }}>
+            <span style={{ color: "#6c63ff" }}>✦</span> AI Ranking
+          </h2>
+          
+          <div style={{ display: "flex", flexDirection: "column", gap: 16, marginBottom: 24 }}>
+            {rankingData.ranking.map((item) => (
+              <div key={item.candidate_id} style={{ display: "flex", gap: 16, alignItems: "flex-start", padding: 16, background: "rgba(255,255,255,0.02)", borderRadius: 12, border: "1px solid rgba(255,255,255,0.05)" }}>
+                <div style={{ width: 28, height: 28, borderRadius: "50%", background: "#6c63ff", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, fontWeight: 700, flexShrink: 0 }}>
+                  {item.rank}
+                </div>
+                <div>
+                  <div style={{ fontSize: 16, fontWeight: 600, color: "#f0f0ff", marginBottom: 6 }}>{item.candidate_name}</div>
+                  <div style={{ fontSize: 14, color: "#d0d0f0", lineHeight: 1.5 }}>{item.justification}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {rankingData.comparison_summary && (
+            <div style={{ paddingTop: 20, borderTop: "1px solid #2a2a3a", fontSize: 15, color: "#d0d0f0", lineHeight: 1.6 }}>
+              {rankingData.comparison_summary}
+            </div>
+          )}
+        </div>
+      )}
+
+      {(() => {
+        const candidateWithQuestions = candidates.find((c) => c.questions && c.questions.length > 0);
+        if (!candidateWithQuestions || !candidateWithQuestions.questions) return null;
+        
+        const hasAnyAnswers = candidates.some((c) => c.answer_scores && c.answer_scores.length > 0);
+        if (!hasAnyAnswers) return null;
+
+        return (
+          <div style={{ marginBottom: 32 }}>
+            <h2 style={{ fontSize: 18, fontWeight: 700, color: "#f0f0ff", margin: "0 0 16px" }}>
+              Answer Summaries
+            </h2>
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              {candidateWithQuestions.questions.map((q, idx) => {
+                const isOpen = openQuestionId === q.id;
+                return (
+                  <div
+                    key={q.id}
+                    style={{
+                      background: "#13131a",
+                      border: "1px solid #2a2a3a",
+                      borderRadius: 12,
+                      overflow: "hidden",
+                    }}
+                  >
+                    <button
+                      onClick={() => setOpenQuestionId(isOpen ? null : q.id)}
+                      style={{
+                        width: "100%",
+                        background: "none",
+                        border: "none",
+                        padding: "16px 20px",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        cursor: "pointer",
+                        textAlign: "left",
+                      }}
+                    >
+                      <div style={{ display: "flex", gap: 12, alignItems: "center", overflow: "hidden" }}>
+                        <span style={{ fontSize: 13, fontWeight: 700, color: "#6c63ff", flexShrink: 0 }}>
+                          Q{idx + 1}
+                        </span>
+                        <span
+                          style={{
+                            fontSize: 15,
+                            fontWeight: 500,
+                            color: "#f0f0ff",
+                            whiteSpace: isOpen ? "normal" : "nowrap",
+                            overflow: isOpen ? "visible" : "hidden",
+                            textOverflow: isOpen ? "clip" : "ellipsis",
+                          }}
+                        >
+                          {q.question}
+                        </span>
+                      </div>
+                      <span style={{ color: "#9898bb", fontSize: 12, flexShrink: 0, marginLeft: 16 }}>
+                        {isOpen ? "▲" : "▼"}
+                      </span>
+                    </button>
+
+                    {isOpen && (
+                      <div style={{ padding: "0 20px 20px", borderTop: "1px solid #1e1e2a", paddingTop: 20 }}>
+                        <div style={{ display: "grid", gridTemplateColumns: `repeat(${candidates.length}, 1fr)`, gap: 24 }}>
+                          {candidates.map((c) => {
+                            const ans = c.answer_scores?.find((a) => a.question_id === q.id);
+                            return (
+                              <div key={c.id}>
+                                <div style={{ fontSize: 13, fontWeight: 600, color: "#9898bb", marginBottom: 8, textTransform: "uppercase" }}>
+                                  {c.name || "Unknown"}
+                                </div>
+                                {ans && ans.answer_summary ? (
+                                  <div style={{ fontSize: 14, color: "#d0d0f0", lineHeight: 1.5 }}>
+                                    {ans.answer_summary}
+                                  </div>
+                                ) : (
+                                  <div style={{ fontSize: 14, color: "#5a5a7a", fontStyle: "italic" }}>
+                                    No answer recorded
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })()}
 
       <div
         style={{

@@ -24,6 +24,16 @@ _SUPABASE_URL = os.getenv("SUPABASE_URL", "")
 _SUPABASE_KEY = os.getenv("SUPABASE_KEY", "")
 _STORAGE_BUCKET = "interviews"
 
+import json
+from google import genai
+
+_GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+if not _GEMINI_API_KEY:
+    raise RuntimeError("GEMINI_API_KEY environment variable is not set.")
+
+_client = genai.Client(api_key=_GEMINI_API_KEY)
+_MODEL = "gemini-2.5-flash"
+
 router = APIRouter(prefix="/interview", tags=["interview"])
 
 
@@ -684,3 +694,123 @@ async def generate_scorecard_endpoint(
     )
 
     return scorecard
+
+
+# ---------------------------------------------------------------------------
+# Phase 1 — Candidate Comparison (Gap 5)
+# ---------------------------------------------------------------------------
+
+class CompareRequest(BaseModel):
+    job_id: int
+    candidate_ids: List[int]
+
+class RankingItem(BaseModel):
+    rank: int
+    candidate_id: int
+    candidate_name: str
+    justification: str
+
+class CompareResponse(BaseModel):
+    ranking: List[RankingItem]
+    comparison_summary: str
+
+_COMPARE_PROMPT = """\
+You are an expert technical recruiter comparing candidates for a job.
+
+CRITICAL RULES:
+1. Return only a valid JSON object. Do not include markdown, backticks, or any text outside the JSON object.
+2. NO markdown code fences (no ```json or ```).
+3. NO preamble, explanation, or text before or after the JSON.
+
+You are comparing the following candidates:
+{candidates_context}
+
+Return EXACTLY this JSON structure:
+{{
+  "ranking": [
+    {{
+      "rank": <int, 1 being best>,
+      "candidate_id": <int>,
+      "candidate_name": "<string>",
+      "justification": "<plain-English sentence explaining why this candidate is ranked here>"
+    }}
+  ],
+  "comparison_summary": "<2-3 sentence overall summary of the candidate pool>"
+}}
+"""
+
+def _clean_response(text: str) -> str:
+    text = text.strip()
+    if text.startswith("```"):
+        lines = text.splitlines()
+        inner = lines[1:-1] if (len(lines) > 1 and lines[-1].strip() == "```") else lines[1:]
+        text = "\n".join(inner).strip()
+    return text
+
+@router.post(
+    "/compare",
+    response_model=CompareResponse,
+    summary="Compare and rank multiple candidates via Gemini",
+)
+async def compare_candidates(
+    body: CompareRequest,
+    db: AsyncSession = Depends(get_db),
+) -> CompareResponse:
+    if not (2 <= len(body.candidate_ids) <= 3):
+        raise HTTPException(status_code=422, detail="Must provide exactly 2 or 3 candidate_ids")
+
+    import asyncio
+    from app.models.score import Score
+
+    async def _fetch_candidate_data(cid: int):
+        c_res = await db.execute(select(Candidate).where(Candidate.id == cid))
+        c = c_res.scalar_one_or_none()
+        s_res = await db.execute(select(Score).where(Score.candidate_id == cid, Score.job_id == body.job_id))
+        s = s_res.scalar_one_or_none()
+        is_res = await db.execute(select(InterviewSession).where(InterviewSession.candidate_id == cid, InterviewSession.job_id == body.job_id))
+        i_session = is_res.scalar_one_or_none()
+        return c, s, i_session
+
+    results = await asyncio.gather(*[_fetch_candidate_data(cid) for cid in body.candidate_ids])
+
+    candidates_context = ""
+    for cid, (cand, score, session) in zip(body.candidate_ids, results):
+        if not cand:
+            continue
+        ctx = f"Candidate ID: {cid}\n"
+        ctx += f"Name: {cand.name or 'N/A'}, Title: {cand.current_title or 'N/A'}, Company: {cand.current_company or 'N/A'}\n"
+        if score:
+            ctx += f"Profile Scores -> Total: {score.total_score}, Tech: {score.technical_score}, Seniority: {score.seniority_score}, Domain: {score.domain_score}\n"
+        if session:
+            if session.overall_interview_score is not None:
+                ctx += f"Overall Interview Score: {session.overall_interview_score}\n"
+            if session.scorecard:
+                sc = session.scorecard
+                ctx += f"Recommendation: {sc.get('overall_recommendation', 'N/A')}\n"
+                ctx += f"Summary: {sc.get('summary', 'N/A')}\n"
+            if session.answer_scores:
+                ctx += "Answer Summaries:\n"
+                for ans in session.answer_scores:
+                    ctx += f" - Q{ans.get('question_id')}: {ans.get('answer_summary', 'N/A')}\n"
+        ctx += "\n"
+        candidates_context += ctx
+
+    if not candidates_context.strip():
+        raise HTTPException(status_code=400, detail="No valid candidates found.")
+
+    prompt = _COMPARE_PROMPT.format(candidates_context=candidates_context)
+
+    try:
+        raw = _clean_response(_client.models.generate_content(model=_MODEL, contents=prompt).text)
+        data = json.loads(raw)
+        return CompareResponse(**data)
+    except Exception as e:
+        logger.warning("First comparison attempt failed: %s. Retrying.", e)
+
+    try:
+        raw = _clean_response(_client.models.generate_content(model=_MODEL, contents=prompt).text)
+        data = json.loads(raw)
+        return CompareResponse(**data)
+    except Exception as e:
+        logger.error("Second comparison attempt failed: %s", e)
+        raise HTTPException(status_code=500, detail="Failed to generate comparison from AI.")
