@@ -32,6 +32,7 @@ type ScreenState =
   | 'question'       // showing question, not yet recording
   | 'recording'      // actively recording
   | 'uploading'      // chunking + uploading
+  | 'review'         // review screen before submit
   | 'error';
 
 // ---------------------------------------------------------------------------
@@ -322,8 +323,8 @@ export default function QuestionsScreen() {
   const handleNext = () => {
     const nextIndex = currentIndex + 1;
     if (nextIndex >= questions.length) {
-      // All done — navigate to complete screen
-      router.replace(`/interview/${token}/complete?candidateName=${encodeURIComponent(candidateName || '')}`);
+      // All done — transition to review state
+      setScreenState('review');
       return;
     }
     setCurrentIndex(nextIndex);
@@ -403,6 +404,45 @@ export default function QuestionsScreen() {
   }
 
   // ---------------------------------------------------------------------------
+  // Screen: Review
+  // ---------------------------------------------------------------------------
+
+  if (screenState === 'review') {
+    return (
+      <View style={styles.container}>
+        <View style={styles.header}>
+          <Text style={styles.timer}>Review Your Interview</Text>
+        </View>
+        <View style={styles.reviewContainer}>
+          {questions.map((q, idx) => {
+            const answered = answeredSet.has(q.id);
+            return (
+              <View key={q.id} style={styles.reviewItem}>
+                <Text style={styles.reviewQuestionText} numberOfLines={2}>
+                  {idx + 1}. {q.question}
+                </Text>
+                <View style={[styles.badge, { backgroundColor: answered ? '#27AE6020' : '#7F8C8D20' }]}>
+                  <Text style={[styles.badgeText, { color: answered ? '#27AE60' : '#7F8C8D' }]}>
+                    {answered ? 'Answered' : 'Not Answered'}
+                  </Text>
+                </View>
+              </View>
+            );
+          })}
+          <TouchableOpacity 
+            style={[styles.nextBtn, { marginTop: 24 }]} 
+            onPress={() => {
+              router.replace(`/interview/${token}/complete?candidateName=${encodeURIComponent(candidateName || '')}`);
+            }}
+          >
+            <Text style={styles.nextBtnText}>✓  Submit Interview</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  }
+
+  // ---------------------------------------------------------------------------
   // Main screen: question + camera
   // ---------------------------------------------------------------------------
 
@@ -468,7 +508,7 @@ export default function QuestionsScreen() {
             // After recording + upload: show Next / Submit
             <TouchableOpacity style={styles.nextBtn} onPress={handleNext}>
               <Text style={styles.nextBtnText}>
-                {isLastQuestion ? '✓  Submit Interview' : 'Next Question →'}
+                {isLastQuestion ? 'Review Interview →' : 'Next Question →'}
               </Text>
             </TouchableOpacity>
           ) : screenState === 'recording' ? (
@@ -666,6 +706,24 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
     letterSpacing: 1,
     fontWeight: '600',
+  },
+
+  // Review Screen
+  reviewContainer: {
+    flex: 1,
+    padding: 24,
+    gap: 16,
+  },
+  reviewItem: {
+    backgroundColor: '#141414',
+    padding: 16,
+    borderRadius: 12,
+    gap: 8,
+  },
+  reviewQuestionText: {
+    color: '#fff',
+    fontSize: 15,
+    fontWeight: '500',
   },
 
   // Loading / uploading
