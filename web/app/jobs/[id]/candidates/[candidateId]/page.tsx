@@ -157,6 +157,20 @@ function ScoreBar({ value, max = 1 }: { value: number; max?: number }) {
   );
 }
 
+function MiniScore({ val }: { val: number | null | undefined }) {
+  if (val == null) return <span style={{ color: "var(--text-muted)", fontSize: 14 }}>—</span>;
+  const pct = Math.max(0, Math.min(100, (val / 10) * 100));
+  const color = val >= 7 ? "var(--green)" : val >= 4.5 ? "var(--yellow)" : "var(--red)";
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 6, width: 48 }}>
+      <span style={{ color: "var(--text-primary)", fontSize: 14 }}>{val.toFixed(1)}</span>
+      <div style={{ height: 3, background: "var(--border)", borderRadius: 2, width: "100%", overflow: "hidden" }}>
+        <div style={{ height: "100%", width: `${pct}%`, background: color, borderRadius: 2 }} />
+      </div>
+    </div>
+  );
+}
+
 // ── Main Page ────────────────────────────────────────────────────────────────
 
 export default function CandidateDetailPage() {
@@ -325,21 +339,20 @@ export default function CandidateDetailPage() {
               <tbody>
                 {candidate.answer_scores.map((ans) => (
                   <tr key={ans.question_id} style={{ borderBottom: "1px solid #1e1e2a" }}>
-                    <td style={{ padding: "12px 16px", color: "#f0f0ff", fontSize: 14 }}>{ans.question_id}</td>
-                    <td style={{ padding: "12px 16px", color: "#f0f0ff", fontSize: 14 }}>{ans.relevance.toFixed(1)}</td>
-                    <td style={{ padding: "12px 16px", color: "#f0f0ff", fontSize: 14 }}>{ans.depth.toFixed(1)}</td>
-                    <td style={{ padding: "12px 16px", color: "#f0f0ff", fontSize: 14 }}>{ans.communication.toFixed(1)}</td>
-                    <td style={{ padding: "12px 16px", color: "#f0f0ff", fontSize: 14 }}>{ans.specificity != null ? ans.specificity.toFixed(1) : '—'}</td>
-                    <td style={{ padding: "12px 16px", color: ans.red_flag ? "#ef4444" : "#5a5a7a", fontSize: 14 }}>
+                    <td style={{ padding: "12px 16px", color: "var(--text-primary)", fontSize: 14 }}>{ans.question_id}</td>
+                    <td style={{ padding: "12px 16px" }}><MiniScore val={ans.relevance} /></td>
+                    <td style={{ padding: "12px 16px" }}><MiniScore val={ans.depth} /></td>
+                    <td style={{ padding: "12px 16px" }}><MiniScore val={ans.communication} /></td>
+                    <td style={{ padding: "12px 16px" }}><MiniScore val={ans.specificity} /></td>
+                    <td style={{ padding: "12px 16px", color: ans.red_flag ? "var(--red)" : "var(--text-muted)", fontSize: 14 }}>
                       {ans.red_flag ? "⚑" : "—"}
                     </td>
-                    <td style={{ padding: "12px 16px", color: "#d0d0f0", fontSize: 13, minWidth: 200 }}>
-                      <div style={{ marginBottom: 8 }}>{ans.feedback}</div>
-                      <div>
-                        <span style={{ fontSize: 11, fontWeight: 600, color: "#9898bb", textTransform: "uppercase", display: "block", marginBottom: 4 }}>Summary</span>
-                        <div style={{ color: "#a0a0c0", lineHeight: 1.4 }}>
-                          {ans.answer_summary || ans.feedback}
-                        </div>
+                    <td style={{ padding: "16px", minWidth: 280 }}>
+                      <div style={{ marginBottom: 12, fontStyle: "italic", color: "var(--text-muted)", fontSize: 13 }}>
+                        {ans.feedback}
+                      </div>
+                      <div style={{ paddingLeft: 12, borderLeft: "2px solid var(--border)", color: "var(--text-secondary)", fontSize: 13, lineHeight: 1.5 }}>
+                        {ans.answer_summary || ans.feedback}
                       </div>
                     </td>
                   </tr>

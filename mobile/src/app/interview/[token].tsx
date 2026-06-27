@@ -73,7 +73,7 @@ export default function InterviewLandingScreen() {
   if (loading) {
     return (
       <View style={styles.centerContainer}>
-        <ActivityIndicator size="large" color="#208AEF" />
+        <ActivityIndicator size="large" color="#fff" />
         <Text style={styles.loadingText}>Loading your interview...</Text>
       </View>
     );
@@ -94,17 +94,34 @@ export default function InterviewLandingScreen() {
 
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>Interview Details</Text>
+      <Text style={styles.logo}>Alfaleus</Text>
       
-      <View style={styles.card}>
-        <Text style={styles.label}>Candidate:</Text>
-        <Text style={styles.value}>{statusData.candidate_name || 'Candidate'}</Text>
-        
-        <Text style={styles.label}>Role:</Text>
-        <Text style={styles.value}>{statusData.job_title}</Text>
-        
-        <Text style={styles.label}>Status:</Text>
-        <Text style={styles.value}>{statusData.interview_status.replace('_', ' ')}</Text>
+      <View style={styles.headerBox}>
+        <Text style={styles.candidateName}>{statusData.candidate_name || 'Candidate'}</Text>
+        <Text style={styles.jobTitle}>{statusData.job_title}</Text>
+      </View>
+      
+      <View style={styles.explainerBox}>
+        <View style={styles.listItem}>
+          <Text style={styles.bullet}>•</Text>
+          <Text style={styles.listText}>5 questions tailored to your profile and the role</Text>
+        </View>
+        <View style={styles.listItem}>
+          <Text style={styles.bullet}>•</Text>
+          <Text style={styles.listText}>30 seconds to think before each recording begins</Text>
+        </View>
+        <View style={styles.listItem}>
+          <Text style={styles.bullet}>•</Text>
+          <Text style={styles.listText}>Up to 3 minutes to record each answer</Text>
+        </View>
+        <View style={styles.listItem}>
+          <Text style={styles.bullet}>•</Text>
+          <Text style={styles.listText}>Once submitted, answers cannot be re-recorded</Text>
+        </View>
+        <View style={styles.listItem}>
+          <Text style={styles.bullet}>•</Text>
+          <Text style={styles.listText}>Your recording uploads automatically — if you lose connection, you can resume where you left off</Text>
+        </View>
       </View>
       
       <TouchableOpacity 
@@ -113,11 +130,15 @@ export default function InterviewLandingScreen() {
         disabled={starting}
       >
         {starting ? (
-          <ActivityIndicator color="#fff" />
+          <ActivityIndicator color="#0a0a0a" />
         ) : (
           <Text style={styles.buttonText}>Begin Interview</Text>
         )}
       </TouchableOpacity>
+      
+      <Text style={styles.footerMutedText}>
+        Make sure you are in a quiet place with good lighting before you begin.
+      </Text>
     </View>
   );
 }
@@ -127,67 +148,94 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 20,
-    backgroundColor: '#f5f5f5',
+    padding: 24,
+    backgroundColor: '#0a0a0a',
   },
   container: {
     flex: 1,
-    padding: 20,
-    backgroundColor: '#f5f5f5',
+    padding: 24,
+    backgroundColor: '#0a0a0a',
     justifyContent: 'center',
   },
   loadingText: {
-    marginTop: 10,
+    marginTop: 12,
     fontSize: 16,
-    color: '#666',
+    color: '#a0a0a0',
   },
   errorText: {
-    fontSize: 18,
-    color: '#e74c3c',
+    fontSize: 16,
+    color: '#ef4444',
     textAlign: 'center',
     marginBottom: 20,
   },
-  title: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    color: '#333',
-    marginBottom: 30,
+  logo: {
+    fontSize: 24,
+    fontWeight: '700',
+    color: '#fff',
+    marginBottom: 32,
     textAlign: 'center',
+    letterSpacing: 1,
   },
-  card: {
-    backgroundColor: '#fff',
-    borderRadius: 10,
-    padding: 20,
-    marginBottom: 30,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  label: {
-    fontSize: 14,
-    color: '#888',
-    marginBottom: 4,
-  },
-  value: {
-    fontSize: 18,
-    color: '#333',
-    fontWeight: '600',
-    marginBottom: 16,
-  },
-  button: {
-    backgroundColor: '#208AEF',
-    paddingVertical: 15,
-    borderRadius: 8,
+  headerBox: {
+    marginBottom: 32,
     alignItems: 'center',
   },
+  candidateName: {
+    fontSize: 28,
+    color: '#fff',
+    fontWeight: '600',
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  jobTitle: {
+    fontSize: 18,
+    color: '#a0a0a0',
+    textAlign: 'center',
+  },
+  explainerBox: {
+    marginBottom: 40,
+    backgroundColor: '#141414',
+    padding: 20,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#222',
+  },
+  listItem: {
+    flexDirection: 'row',
+    marginBottom: 16,
+    alignItems: 'flex-start',
+  },
+  bullet: {
+    color: '#a0a0a0',
+    fontSize: 18,
+    marginRight: 12,
+    lineHeight: 22,
+  },
+  listText: {
+    color: '#e0e0e0',
+    fontSize: 15,
+    lineHeight: 22,
+    flex: 1,
+  },
+  button: {
+    backgroundColor: '#fff',
+    paddingVertical: 16,
+    borderRadius: 8,
+    alignItems: 'center',
+    marginBottom: 20,
+  },
   buttonDisabled: {
-    backgroundColor: '#90c5f7',
+    opacity: 0.7,
   },
   buttonText: {
-    color: '#fff',
+    color: '#0a0a0a',
     fontSize: 18,
-    fontWeight: 'bold',
+    fontWeight: '600',
+  },
+  footerMutedText: {
+    color: '#666',
+    fontSize: 13,
+    textAlign: 'center',
+    lineHeight: 18,
   },
 });

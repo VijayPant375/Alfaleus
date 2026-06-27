@@ -80,13 +80,16 @@ function RecommendationBadge({ rec }: { rec: string }) {
 }
 
 function InterviewStatusBadge({ status }: { status: string }) {
-  const map: Record<string, { color: string; bg: string }> = {
-    not_invited: { color: "#5a5a7a", bg: "rgba(90,90,122,0.1)" },
-    invited: { color: "#6c63ff", bg: "rgba(108,99,255,0.12)" },
-    in_progress: { color: "#eab308", bg: "rgba(234,179,8,0.12)" },
-    completed: { color: "#22c55e", bg: "rgba(34,197,94,0.12)" },
+  const normStatus = !status || status === "not_invited" ? "not_invited" : status;
+  
+  const map: Record<string, { label: string; color: string; bg: string; border: string }> = {
+    not_invited: { label: "Not Invited", color: "var(--text-muted)", bg: "transparent", border: "1px solid var(--border)" },
+    invited: { label: "Invited", color: "var(--blue)", bg: "#3b82f615", border: "none" },
+    in_progress: { label: "In Progress", color: "var(--yellow)", bg: "#eab30815", border: "none" },
+    completed: { label: "Completed", color: "var(--green)", bg: "#22c55e15", border: "none" },
   };
-  const c = map[status] ?? { color: "#9898bb", bg: "rgba(152,152,187,0.12)" };
+  
+  const c = map[normStatus] || map.not_invited;
   return (
     <span
       style={{
@@ -94,25 +97,46 @@ function InterviewStatusBadge({ status }: { status: string }) {
         fontWeight: 600,
         color: c.color,
         background: c.bg,
+        border: c.border,
         borderRadius: 20,
         padding: "3px 10px",
-        textTransform: "capitalize",
         whiteSpace: "nowrap",
       }}
     >
-      {status.replace(/_/g, " ")}
+      {c.label}
     </span>
   );
 }
 
 function ShortlistBadge({ shortlisted, override }: { shortlisted: boolean; override: boolean }) {
+  let color = "var(--text-muted)";
+  let bg = "transparent";
+  let border = "1px solid var(--border)";
+  let label = "Not Shortlisted";
+  let icon = "";
+
+  if (override) {
+    color = "var(--accent)";
+    bg = "rgba(108, 99, 255, 0.15)";
+    border = "none";
+    label = "Override";
+    icon = "✓ ";
+  } else if (shortlisted) {
+    color = "var(--green)";
+    bg = "rgba(34,197,94,0.15)";
+    border = "none";
+    label = "Shortlisted";
+    icon = "✓ ";
+  }
+
   return (
     <span
       style={{
         fontSize: 11,
         fontWeight: 600,
-        color: shortlisted ? "#22c55e" : "#5a5a7a",
-        background: shortlisted ? "rgba(34,197,94,0.12)" : "rgba(90,90,122,0.1)",
+        color,
+        background: bg,
+        border,
         borderRadius: 20,
         padding: "3px 10px",
         display: "inline-flex",
@@ -120,24 +144,21 @@ function ShortlistBadge({ shortlisted, override }: { shortlisted: boolean; overr
         gap: 4,
       }}
     >
-      {shortlisted ? "✓ Shortlisted" : "Not listed"}
-      {override && (
-        <span style={{ fontSize: 9, opacity: 0.7 }}>OVERRIDE</span>
-      )}
+      {icon}{label}
     </span>
   );
 }
 
-function ScoreBar({ value, max = 1 }: { value: number; max?: number }) {
-  const pct = Math.min(100, Math.round((value / max) * 100));
-  const colour = pct >= 70 ? "#22c55e" : pct >= 45 ? "#eab308" : "#ef4444";
+function ScoreBar({ value, max = 100 }: { value: number; max?: number }) {
+  const pct = Math.min(100, Math.max(0, Math.round((value / max) * 100)));
+  const colour = pct >= 70 ? "var(--green)" : pct >= 45 ? "var(--yellow)" : "var(--red)";
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
       <div
         style={{
           flex: 1,
           height: 4,
-          background: "#2a2a3a",
+          background: "var(--border)",
           borderRadius: 2,
           overflow: "hidden",
         }}
@@ -153,7 +174,7 @@ function ScoreBar({ value, max = 1 }: { value: number; max?: number }) {
         />
       </div>
       <span style={{ fontSize: 12, color: colour, fontWeight: 600, minWidth: 32, textAlign: "right" }}>
-        {(value * 100).toFixed(0)}%
+        {pct}%
       </span>
     </div>
   );

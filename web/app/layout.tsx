@@ -96,7 +96,7 @@ export default function RootLayout({
               <img src="/logo.png" alt="Alfaleus Logo" style={{ width: 24, height: 24, objectFit: "contain" }} />
               <span style={{ fontWeight: 600, color: "var(--text-primary)" }}>Alfaleus Technology</span>
             </div>
-            <p style={{ margin: 0 }}>Empowering the future of healthcare through AI and deep tech.</p>
+            <p style={{ margin: 0 }}>Built for modern hiring teams.</p>
             <p style={{ margin: 0, fontSize: 12, opacity: 0.6 }}>© {new Date().getFullYear()} Alfaleus Technology. All rights reserved.</p>
           </div>
         </footer>
