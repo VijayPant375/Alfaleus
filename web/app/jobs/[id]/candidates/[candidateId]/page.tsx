@@ -45,6 +45,7 @@ interface AnswerScore {
   relevance: number;
   depth: number;
   communication: number;
+  specificity?: number;
   feedback: string;
   answer_summary?: string;
   red_flag: boolean;
@@ -314,7 +315,7 @@ export default function CandidateDetailPage() {
             <table style={{ width: "100%", borderCollapse: "collapse" }}>
               <thead>
                 <tr style={{ borderBottom: "1px solid #2a2a3a" }}>
-                  {["Q#", "Relevance", "Depth", "Communication", "Red Flag", "Feedback"].map((h) => (
+                  {["Q#", "Relevance", "Depth", "Communication", "Specificity", "Red Flag", "Feedback"].map((h) => (
                     <th key={h} style={{ padding: "12px 16px", textAlign: "left", fontSize: 11, fontWeight: 600, color: "#9898bb", textTransform: "uppercase", whiteSpace: "nowrap" }}>
                       {h}
                     </th>
@@ -328,6 +329,7 @@ export default function CandidateDetailPage() {
                     <td style={{ padding: "12px 16px", color: "#f0f0ff", fontSize: 14 }}>{ans.relevance.toFixed(1)}</td>
                     <td style={{ padding: "12px 16px", color: "#f0f0ff", fontSize: 14 }}>{ans.depth.toFixed(1)}</td>
                     <td style={{ padding: "12px 16px", color: "#f0f0ff", fontSize: 14 }}>{ans.communication.toFixed(1)}</td>
+                    <td style={{ padding: "12px 16px", color: "#f0f0ff", fontSize: 14 }}>{ans.specificity != null ? ans.specificity.toFixed(1) : '—'}</td>
                     <td style={{ padding: "12px 16px", color: ans.red_flag ? "#ef4444" : "#5a5a7a", fontSize: 14 }}>
                       {ans.red_flag ? "⚑" : "—"}
                     </td>

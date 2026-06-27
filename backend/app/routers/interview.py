@@ -756,8 +756,8 @@ async def compare_candidates(
     body: CompareRequest,
     db: AsyncSession = Depends(get_db),
 ) -> CompareResponse:
-    if not (2 <= len(body.candidate_ids) <= 3):
-        raise HTTPException(status_code=422, detail="Must provide exactly 2 or 3 candidate_ids")
+    if not (2 <= len(body.candidate_ids) <= 4):
+        raise HTTPException(status_code=422, detail="Must provide exactly 2, 3, or 4 candidate_ids")
 
     import asyncio
     from app.models.score import Score

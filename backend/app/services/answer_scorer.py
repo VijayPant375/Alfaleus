@@ -15,6 +15,7 @@ Returns a dict of shape:
     "relevance":      float (0-10),
     "depth":          float (0-10),
     "communication":  float (0-10),
+    "specificity":    float (0-10),
     "feedback":       str,
     "red_flag":       bool,
   }
@@ -64,6 +65,7 @@ Rate the candidate's answer on the following dimensions:
 - "relevance":     Did the answer address the question? (0-10)
 - "depth":         Did the answer demonstrate deep knowledge or insight? (0-10)
 - "communication": Was the answer clear, structured, and articulate? (0-10)
+- "specificity":   How specific and concrete the candidate's answer was — use of real examples, named technologies, measurable outcomes, or precise details rather than vague generalisations (0-10)
 - "feedback":      One concise sentence of constructive feedback.
 - "answer_summary": 2-3 sentences: a narrative summary of what the candidate actually said in their answer, written in third person (e.g. "The candidate explained X and gave an example of Y. They demonstrated Z.").
 - "red_flag":      true if the answer reveals a serious concern (e.g. dishonesty, severe
@@ -74,6 +76,7 @@ Return EXACTLY this JSON structure:
   "relevance": <float>,
   "depth": <float>,
   "communication": <float>,
+  "specificity": <float>,
   "feedback": "<one sentence>",
   "answer_summary": "<2-3 sentence narrative summary>",
   "red_flag": <bool>
@@ -98,12 +101,13 @@ Score this interview answer. All fields required:
 - "relevance": float 0-10
 - "depth": float 0-10
 - "communication": float 0-10
+- "specificity": float 0-10
 - "feedback": string (one sentence)
 - "answer_summary": string (2-3 sentence narrative summary of what the candidate said, in third person)
 - "red_flag": boolean
 
 Example format:
-{{"relevance": 7.5, "depth": 6.0, "communication": 8.0, "feedback": "Good structure but lacked specific examples.", "answer_summary": "The candidate explained the core concept clearly. They provided a brief example from their past experience.", "red_flag": false}}
+{{"relevance": 7.5, "depth": 6.0, "communication": 8.0, "specificity": 8.0, "feedback": "Good structure but lacked specific examples.", "answer_summary": "The candidate explained the core concept clearly. They provided a brief example from their past experience.", "red_flag": false}}
 
 JOB CONTEXT:
 - Title: {job_title}
@@ -174,6 +178,16 @@ def _validate_score(data: dict) -> dict:
         if not (0 <= float(val) <= 10):
             raise ValueError(f"Field '{field}' must be between 0 and 10, got {val}")
         data[field] = float(val)
+
+    if "specificity" not in data:
+        data["specificity"] = 5.0
+    else:
+        val = data["specificity"]
+        if not isinstance(val, (int, float)):
+            raise ValueError(f"Field 'specificity' must be a number, got {type(val).__name__}")
+        if not (0 <= float(val) <= 10):
+            raise ValueError(f"Field 'specificity' must be between 0 and 10, got {val}")
+        data["specificity"] = float(val)
 
     if "feedback" not in data or not isinstance(data["feedback"], str):
         raise ValueError("Field 'feedback' must be a non-empty string")

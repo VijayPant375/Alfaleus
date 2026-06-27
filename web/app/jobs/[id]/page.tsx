@@ -420,10 +420,14 @@ export default function JobPipelinePage() {
   };
 
   const toggleSelect = (id: string) => {
+    if (!selected.has(id) && selected.size >= 4) {
+      alert("You can compare up to 4 candidates at a time");
+      return;
+    }
     setSelected((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
-      else if (next.size < 3) next.add(id);
+      else if (next.size < 4) next.add(id);
       return next;
     });
   };
@@ -583,7 +587,7 @@ export default function JobPipelinePage() {
                         id={`select-${c.id}`}
                         checked={selected.has(c.id)}
                         onChange={() => toggleSelect(c.id)}
-                        disabled={!selected.has(c.id) && selected.size >= 3}
+                        disabled={!selected.has(c.id) && selected.size >= 4}
                         style={{ cursor: "pointer", accentColor: "#6c63ff" }}
                       />
                     </td>
