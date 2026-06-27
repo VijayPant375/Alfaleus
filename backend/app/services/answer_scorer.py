@@ -54,7 +54,7 @@ _PRIMARY_PROMPT = """\
 You are an expert technical interviewer evaluating a candidate's answer.
 
 CRITICAL RULES:
-1. Your ENTIRE response must be a single, valid JSON object.
+1. Return only a valid JSON object. Do not include markdown, backticks, or any text outside the JSON object.
 2. NO markdown code fences (no ```json or ```).
 3. NO preamble, explanation, or text before or after the JSON.
 4. All float fields must be numbers between 0 and 10 (inclusive).
@@ -65,6 +65,7 @@ Rate the candidate's answer on the following dimensions:
 - "depth":         Did the answer demonstrate deep knowledge or insight? (0-10)
 - "communication": Was the answer clear, structured, and articulate? (0-10)
 - "feedback":      One concise sentence of constructive feedback.
+- "answer_summary": 2-3 sentences: a narrative summary of what the candidate actually said in their answer, written in third person (e.g. "The candidate explained X and gave an example of Y. They demonstrated Z.").
 - "red_flag":      true if the answer reveals a serious concern (e.g. dishonesty, severe
                    knowledge gap, inappropriate content), false otherwise.
 
@@ -74,6 +75,7 @@ Return EXACTLY this JSON structure:
   "depth": <float>,
   "communication": <float>,
   "feedback": "<one sentence>",
+  "answer_summary": "<2-3 sentence narrative summary>",
   "red_flag": <bool>
 }}
 
@@ -90,17 +92,18 @@ CANDIDATE'S ANSWER (transcript):
 """
 
 _STRICT_PROMPT = """\
-STRICT MODE. Return ONLY a raw JSON object. Zero other characters allowed.
+STRICT MODE. Return only a valid JSON object. Do not include markdown, backticks, or any text outside the JSON object. Zero other characters allowed.
 
 Score this interview answer. All fields required:
 - "relevance": float 0-10
 - "depth": float 0-10
 - "communication": float 0-10
 - "feedback": string (one sentence)
+- "answer_summary": string (2-3 sentence narrative summary of what the candidate said, in third person)
 - "red_flag": boolean
 
 Example format:
-{{"relevance": 7.5, "depth": 6.0, "communication": 8.0, "feedback": "Good structure but lacked specific examples.", "red_flag": false}}
+{{"relevance": 7.5, "depth": 6.0, "communication": 8.0, "feedback": "Good structure but lacked specific examples.", "answer_summary": "The candidate explained the core concept clearly. They provided a brief example from their past experience.", "red_flag": false}}
 
 JOB CONTEXT:
 - Title: {job_title}
@@ -125,7 +128,7 @@ def _clean_response(text: str) -> str:
     text = text.strip()
     if text.startswith("```"):
         lines = text.splitlines()
-        inner = lines[1:-1] if lines and lines[-1].strip() == "```" else lines[1:]
+        inner = lines[1:-1] if (len(lines) > 1 and lines[-1].strip() == "```") else lines[1:]
         text = "\n".join(inner).strip()
     return text
 
@@ -174,6 +177,9 @@ def _validate_score(data: dict) -> dict:
 
     if "feedback" not in data or not isinstance(data["feedback"], str):
         raise ValueError("Field 'feedback' must be a non-empty string")
+
+    if "answer_summary" not in data or not isinstance(data["answer_summary"], str) or not data["answer_summary"].strip():
+        data["answer_summary"] = data.get("feedback", "")
 
     if "red_flag" not in data or not isinstance(data["red_flag"], bool):
         raise ValueError("Field 'red_flag' must be a boolean")

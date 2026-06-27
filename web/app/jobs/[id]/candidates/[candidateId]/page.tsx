@@ -46,6 +46,7 @@ interface AnswerScore {
   depth: number;
   communication: number;
   feedback: string;
+  answer_summary?: string;
   red_flag: boolean;
 }
 
@@ -330,7 +331,15 @@ export default function CandidateDetailPage() {
                     <td style={{ padding: "12px 16px", color: ans.red_flag ? "#ef4444" : "#5a5a7a", fontSize: 14 }}>
                       {ans.red_flag ? "⚑" : "—"}
                     </td>
-                    <td style={{ padding: "12px 16px", color: "#d0d0f0", fontSize: 13, minWidth: 200 }}>{ans.feedback}</td>
+                    <td style={{ padding: "12px 16px", color: "#d0d0f0", fontSize: 13, minWidth: 200 }}>
+                      <div style={{ marginBottom: 8 }}>{ans.feedback}</div>
+                      <div>
+                        <span style={{ fontSize: 11, fontWeight: 600, color: "#9898bb", textTransform: "uppercase", display: "block", marginBottom: 4 }}>Summary</span>
+                        <div style={{ color: "#a0a0c0", lineHeight: 1.4 }}>
+                          {ans.answer_summary || ans.feedback}
+                        </div>
+                      </div>
+                    </td>
                   </tr>
                 ))}
               </tbody>
