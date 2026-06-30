@@ -4,7 +4,7 @@
 
 **Deployment Status (Railway Backend)**: Deployment was successfully attempted (image builds and deploys correctly), but the service is currently failing to start due to an unresolved Postgres connectivity hang on Railway's internal network. Specifically, the `psycopg2` connection to `postgres.railway.internal` hangs indefinitely without error (even with an explicit `connect_timeout=10` set). This is suspected to be a Railway-side internal networking/DNS issue, not an application bug. The Dockerfile, `railway.toml`, and Alembic migration chain have been fully verified to work against a local Postgres instance.
 
-**Android APK Download**: [Placeholder for APK Link]
+**Android APK Download**: [Download APK (v1.0.1)](https://expo.dev/artifacts/eas/oENq8i5GCvteZjvHNPN6PDdOcrDgA1Eak6LSrUw7CSE.apk)
 
 ## Project Overview
 
@@ -170,3 +170,8 @@ The AI pipeline is composed of three main components: Gemini, `sentence-transfor
 
 ## Screen Walkthrough
 [Vijay to fill: Add screen walkthrough or video link here]
+
+## Recent Updates
+
+* **API Enhancements**: The candidate endpoints (`GET /candidates` and `GET /candidates/{id}`) have been optimized to include the semantic `Score` model directly in the `CandidateResponse`. This eliminates the need for separate API calls to fetch semantic scores, improving dashboard performance.
+* **Mobile App Build**: The Android APK has been successfully built and is now available for download.

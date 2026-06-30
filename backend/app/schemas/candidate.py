@@ -73,4 +73,7 @@ class CandidateResponse(BaseModel):
     overall_interview_score: Optional[float] = None
     answer_scores: Optional[List[Dict[str, Any]]] = None
 
+    # Semantic score fields
+    score: Optional[Any] = None
+
     model_config = {"from_attributes": True}

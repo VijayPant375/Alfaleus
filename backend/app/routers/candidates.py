@@ -64,13 +64,16 @@ async def _fetch_session(candidate: Candidate, db: AsyncSession):
     return result.scalar_one_or_none()
 
 
-def _build_candidate_response(candidate: Candidate, session=None) -> CandidateResponse:
+def _build_candidate_response(candidate: Candidate, session=None, score=None) -> CandidateResponse:
     """Build a CandidateResponse, merging in interview session data if available."""
     data = CandidateResponse.model_validate(candidate)
     if session:
         data.scorecard = session.scorecard
         data.overall_interview_score = session.overall_interview_score
         data.answer_scores = session.answer_scores
+    if score:
+        from app.schemas.score import ScoreResponse
+        data.score = ScoreResponse.model_validate(score)
     return data
 
 
@@ -309,17 +312,22 @@ async def list_candidates(
 ) -> list[CandidateResponse]:
     from sqlalchemy.orm import outerjoin
     result = await db.execute(
-        select(Candidate, InterviewSession)
+        select(Candidate, InterviewSession, Score)
         .outerjoin(
             InterviewSession,
             (InterviewSession.candidate_id == Candidate.id) &
             (InterviewSession.job_id == Candidate.job_id)
         )
+        .outerjoin(
+            Score,
+            (Score.candidate_id == Candidate.id) &
+            (Score.job_id == Candidate.job_id)
+        )
         .where(Candidate.job_id == job_id)
         .order_by(Candidate.created_at.desc())
     )
     rows = result.all()
-    return [_build_candidate_response(candidate, session) for candidate, session in rows]
+    return [_build_candidate_response(candidate, session, score) for candidate, session, score in rows]
 
 
 # ---------------------------------------------------------------------------
@@ -339,7 +347,11 @@ async def get_candidate(
     """GET /candidates/{candidate_id}"""
     candidate = await _get_candidate_or_404(candidate_id, db)
     session = await _fetch_session(candidate, db)
-    return _build_candidate_response(candidate, session)
+    score_result = await db.execute(
+        select(Score).where(Score.candidate_id == candidate_id).order_by(Score.created_at.desc()).limit(1)
+    )
+    score = score_result.scalar_one_or_none()
+    return _build_candidate_response(candidate, session, score)
 
 
 # ---------------------------------------------------------------------------
