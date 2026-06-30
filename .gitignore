@@ -67,3 +67,7 @@ alembic/versions/__pycache__/
 # ─── Misc ─────────────────────────────────────────────────────────────────────
 *.bak
 *.tmp
+node_modules/
+.expo/
+.next/
+*.db
