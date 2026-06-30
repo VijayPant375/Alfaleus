@@ -14,12 +14,6 @@ from contextlib import asynccontextmanager
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Pre-warm Whisper model so the first transcription request is not slow
-    import asyncio
-    from app.services.transcriber import _get_whisper_model
-    loop = asyncio.get_event_loop()
-    await loop.run_in_executor(None, _get_whisper_model)
-    print("[startup] Whisper model pre-warmed.")
     yield
     # Shutdown: nothing to clean up
 

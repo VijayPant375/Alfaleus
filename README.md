@@ -1,5 +1,11 @@
 # Alfaleus
 
+**GitHub Repository**: [https://github.com/VijayPant375/Alfaleus](https://github.com/VijayPant375/Alfaleus)
+
+**Deployment Status (Railway Backend)**: Deployment was successfully attempted (image builds and deploys correctly), but the service is currently failing to start due to an unresolved Postgres connectivity hang on Railway's internal network. Specifically, the `psycopg2` connection to `postgres.railway.internal` hangs indefinitely without error (even with an explicit `connect_timeout=10` set). This is suspected to be a Railway-side internal networking/DNS issue, not an application bug. The Dockerfile, `railway.toml`, and Alembic migration chain have been fully verified to work against a local Postgres instance.
+
+**Android APK Download**: [Placeholder for APK Link]
+
 ## Project Overview
 
 Alfaleus is a full-stack AI hiring platform designed to automate and streamline the talent screening process. A recruiter posts a job description, and the system automatically scrapes candidate profiles from platforms like LinkedIn and Indeed. Each candidate is semantically scored against the job requirements, and shortlisted candidates receive an email containing a link for an async video interview.
@@ -158,3 +164,9 @@ The AI pipeline is composed of three main components: Gemini, `sentence-transfor
 * Whisper runs on CPU, which can result in slow processing on cold start.
 * Gemini free tier rate limits may affect concurrent candidate scoring.
 * There is no authentication layer on the recruiter dashboard.
+
+## Manual Whisper Benchmark
+[Vijay to fill: Add benchmark results here]
+
+## Screen Walkthrough
+[Vijay to fill: Add screen walkthrough or video link here]
